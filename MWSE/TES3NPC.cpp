@@ -7,6 +7,7 @@
 #include "TES3MobileNPC.h"
 #include "TES3UIElement.h"
 #include "TES3Race.h"
+#include "TES3Class.h"
 
 #include "LuaManager.h"
 
@@ -108,6 +109,11 @@ namespace TES3 {
 		}
 
 		return {};
+	}
+
+	const auto TES3_NPCBase_setClassById = reinterpret_cast<void (__thiscall*)(const NPCBase*, const char*)>(0x4D77D0);
+	void NPC::setClass(TES3::Class* c) {
+		TES3_NPCBase_setClassById(this, c->id);
 	}
 
 	//

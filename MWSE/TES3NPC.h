@@ -91,6 +91,8 @@ namespace TES3 {
 		// Custom functions.
 		//
 
+		void setClass(TES3::Class* c);
+
 		std::reference_wrapper<unsigned char[8]> getAttributes();
 		std::reference_wrapper<unsigned char[27]> getSkills();
 
