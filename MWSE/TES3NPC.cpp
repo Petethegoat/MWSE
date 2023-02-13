@@ -113,6 +113,9 @@ namespace TES3 {
 
 	const auto TES3_NPCBase_setClassById = reinterpret_cast<void (__thiscall*)(const NPCBase*, const char*)>(0x4D77D0);
 	void NPC::setClass(TES3::Class* c) {
+		if (c == nullptr) {
+			throw std::invalid_argument("Bad object passed to setClass, expected TES3::Class.");
+		}
 		TES3_NPCBase_setClassById(this, c->id);
 	}
 
