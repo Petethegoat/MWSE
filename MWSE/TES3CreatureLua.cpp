@@ -49,7 +49,7 @@ namespace mwse::lua {
 			usertypeDefinition["magicka"] = sol::readonly_property(&TES3::Creature::getMagicka);
 			usertypeDefinition["mesh"] = sol::property(&TES3::Creature::getModelPath, &TES3::Creature::setModelPath);
 			usertypeDefinition["name"] = sol::property(&TES3::Creature::getName, &TES3::Creature::setName);
-			usertypeDefinition["script"] = sol::readonly_property(&TES3::Creature::getScript);
+			usertypeDefinition["script"] = &TES3::Creature::script;
 
 			// Easy access to actor flags.
 			usertypeDefinition["biped"] = sol::property(&TES3::Creature::getIsBiped, &TES3::Creature::setIsBiped);
@@ -58,6 +58,9 @@ namespace mwse::lua {
 			usertypeDefinition["swims"] = sol::property(&TES3::Creature::getSwims, &TES3::Creature::setSwims);
 			usertypeDefinition["flies"] = sol::property(&TES3::Creature::getFlies, &TES3::Creature::setFlies);
 			usertypeDefinition["walks"] = sol::property(&TES3::Creature::getWalks, &TES3::Creature::setWalks);
+
+			// Utility function bindings.
+			usertypeDefinition["createCopy"] = &TES3::Creature::createCopy_lua<TES3::Creature>;
 
 			// TODO: Deprecated. Remove before 2.1-stable.
 			usertypeDefinition["model"] = sol::property(&TES3::Creature::getModelPath, &TES3::Creature::setModelPath);

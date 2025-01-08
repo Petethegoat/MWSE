@@ -7,6 +7,7 @@
 #include "LuaUtil.h"
 
 #include "TES3UIElement.h"
+#include "TES3UIInventoryTile.h"
 #include "TES3UILuaData.h"
 #include "TES3UIManager.h"
 #include "TES3UIMenuController.h"
@@ -20,7 +21,9 @@
 #include "TES3WorldController.h"
 
 #include "LuaConsoleReferenceChangedEvent.h"
+#include "LuaMagicSelectionChangedEvent.h"
 #include "LuaShowRestWaitMenuEvent.h"
+#include "LuaUiSkillTooltipEvent.h"
 #include "LuaUiSpellTooltipEvent.h"
 
 #include "TES3UIManagerLua.h"
@@ -92,13 +95,19 @@ namespace TES3::UI {
 	Element* createMenu_lua(sol::table params) {
 		auto id = mwse::lua::getOptionalUIID(params, "id");
 		if (id == ID_NULL) {
-			mwse::log::getLog() << "createMenu: id argument is required." << std::endl;
-			return nullptr;
+			throw std::invalid_argument("createMenu: id argument is required.");
+		}
+
+		bool isDragFrame = params.get_or("dragFrame", false);
+		bool isFixedFrame = params.get_or("fixedFrame", false);
+
+		if (!(isDragFrame || isFixedFrame)) {
+			throw std::invalid_argument("createMenu: Either dragFrame or fixedFrame must be selected.");
 		}
 
 		Element* menu = createMenu(id);
 
-		if (params.get_or("fixedFrame", false)) {
+		if (isFixedFrame) {
 			menu->createFixedFrame(id, 1);
 			// Standard behaviours
 			preventInventoryMenuToggle(menu);
@@ -109,12 +118,13 @@ namespace TES3::UI {
 				menu->setProperty(TES3::UI::Property::event_unfocus, returnTrueFunc);
 			}
 		}
-		else if (params.get_or("dragFrame", false)) {
+		else if (isDragFrame) {
 			menu->createDragFrame(id, 1);
-		}
 
-		if (params.get_or("loadable", true)) {
-			menu->setProperty(Property::savable_menu, Property::boolean_true);
+			// Optionally mark menu as auto-saving its positioning to morrowind.ini.
+			if (params.get_or("loadable", true)) {
+				menu->setProperty(Property::savable_menu, Property::boolean_true);
+			}
 		}
 
 		return menu;
@@ -179,6 +189,21 @@ namespace TES3::UI {
 
 			// Clean up temp element.
 			tempElement->destroy();
+			return menu;
+		}
+
+		auto skill = getOptionalParamObject<TES3::Skill>(params, "skill");
+		if (skill) {
+			// Build the tooltip.
+			const auto TES3_buildSkillTooltip = reinterpret_cast<void(__cdecl*)(char)>(0x6297F0);
+			TES3_buildSkillTooltip(skill->skill);
+
+			// Fire off the related event.
+			if (mwse::lua::event::UiSkillTooltipEvent::getEventEnabled()) {
+				mwse::lua::LuaManager& luaManager = mwse::lua::LuaManager::getInstance();
+				luaManager.getThreadSafeStateHandle().triggerEvent(new mwse::lua::event::UiSkillTooltipEvent(menu, skill->skill, 0));
+			}
+
 			return menu;
 		}
 
@@ -283,6 +308,27 @@ namespace TES3::UI {
 		return true;
 	}
 
+	bool __cdecl onInventoryTileTooltip(Element* owningWidget, Property eventID, int data0, int data1, Element* source) {
+		const auto p_propMenuInventory_Object = reinterpret_cast<Property*>(0x7D39C8);
+		const auto p_propMenuInventory_extra = reinterpret_cast<Property*>(0x7D396C);
+		const auto p_propMenuInventory_Thing = reinterpret_cast<Property*>(0x7D3A70);
+
+		// This call is required because owningWidget is resolved differently for tooltips compared to regular events.
+		const auto TES3_ui_findPartRootOrComponent = reinterpret_cast<Element* (__thiscall*)(Element*, Property)>(0x582B80);
+		auto tileElement = TES3_ui_findPartRootOrComponent(source, Property::null);
+
+		auto item = reinterpret_cast<Item*>(tileElement->getProperty(PropertyType::Pointer, *p_propMenuInventory_Object).ptrValue);
+		auto itemData = reinterpret_cast<ItemData*>(tileElement->getProperty(PropertyType::Pointer, *p_propMenuInventory_extra).ptrValue);
+
+		if (item && !findHelpLayerMenu(static_cast<UI_ID>(Property::CursorIcon))) {
+			// The original code provided an incorrect count for tiles that were both from a split stack and had no item data.
+			auto tile = reinterpret_cast<InventoryTile*>(tileElement->getProperty(PropertyType::Pointer, *p_propMenuInventory_Thing).ptrValue);
+			TES3::WorldController::get()->menuController->menuInputController->displayObjectTooltip(item, itemData, tile->count);
+		}
+
+		return true;
+	}
+	
 	MobileActor* getServiceActor() {
 		return TES3_ui_getServiceActor();
 	}
@@ -445,12 +491,22 @@ namespace TES3::UI {
 		logToConsole(text, isCommand.value_or(false));
 	}
 
+	const auto TES3_HideCursor = reinterpret_cast<void(__cdecl*)()>(0x5966F0);
+	void hideCursor() {
+		TES3_HideCursor();
+	}
+
 	const auto TES3_CloseBookMenu = reinterpret_cast<void(__cdecl*)()>(0x5AC7F0);
 	void closeBookMenu() {
 		Element* menuBook = TES3::UI::findMenu("MenuBook");
 		if (menuBook) {
 			TES3_CloseBookMenu();
 		}
+	}
+
+	const auto TES3_CloseDialogueMenu = reinterpret_cast<void(__cdecl*)()>(0x5BE5B0);
+	void closeDialogueMenu() {
+		TES3_CloseDialogueMenu();
 	}
 
 	const auto TES3_CloseScrollMenu = reinterpret_cast<void(__cdecl*)()>(0x613A60);
@@ -469,7 +525,7 @@ namespace TES3::UI {
 		}
 
 		TES3_UI_ShowJournal();
-		TES3::WorldController::get()->menuController->unknown_0x2C = 1;
+		TES3::WorldController::get()->menuController->flagClearHelpMenu = 1;
 
 		return findMenu("MenuJournal") != nullptr;
 	}
@@ -545,12 +601,11 @@ namespace TES3::UI {
 		return getServiceActor();
 	}
 
-	const auto TES3_MobileMobile_ModGoldHeld = reinterpret_cast<void(__thiscall*)(MobileActor*, int)>(0x52B480);
-	void __fastcall patchSpellmakingMenuRemoveNoCost(MobileActor* self, DWORD _EDX_, int goldDelta) {
+	void __fastcall patchSpellmakingMenuRemoveNoCost(MobilePlayer* self, DWORD _EDX_, int goldDelta) {
 		if (goldDelta == 0) {
 			return;
 		}
-		TES3_MobileMobile_ModGoldHeld(self, goldDelta);
+		self->modGold(goldDelta);
 	}
 
 	Element* __cdecl patchSpellmakingMenuExitMenuModeIfNoDialogMenu(TES3::UI::UI_ID dialogMenuId) {
@@ -591,12 +646,30 @@ namespace TES3::UI {
 
 	const auto TES3_UI_UpdateCurrentMagicFromSpell = reinterpret_cast<void(__cdecl*)(const char*, const char*, Spell*)>(0x5F4E70);
 	void updateCurrentMagicFromSpell(const char* iconPath, const char* spellName, Spell* spell) {
+		// Call original code.
 		TES3_UI_UpdateCurrentMagicFromSpell(iconPath, spellName, spell);
+
+		// Fire event. Deselects when spell is nullptr.
+		if (mwse::lua::event::MagicSelectionChangedEvent::getEventEnabled()) {
+			auto stateHandle = mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle();
+			sol::object response = stateHandle.triggerEvent(new mwse::lua::event::MagicSelectionChangedEvent(spell));
+		}
 	}
 
-	const auto TES3_UI_UpdateCurrentMagicFromEquipmentStack = reinterpret_cast<void(__cdecl*)(char*, const char*, EquipmentStack*)>(0x5F4DB0);
-	void updateCurrentMagicFromEquipmentStack(EquipmentStack* equipmentStack) {
-		TES3_UI_UpdateCurrentMagicFromEquipmentStack(nullptr, nullptr, equipmentStack);
+	const auto TES3_UI_UpdateCurrentMagicFromEquipmentStack = reinterpret_cast<void(__cdecl*)(const char*, const char*, EquipmentStack*)>(0x5F4DB0);
+	void updateCurrentMagicFromEquipmentStack(const char* iconPath, const char* itemName, EquipmentStack* equipmentStack) {
+		// Call original code.
+		TES3_UI_UpdateCurrentMagicFromEquipmentStack(iconPath, itemName, equipmentStack);
+
+		// Fire event.
+		if (equipmentStack) {
+			auto enchantment = equipmentStack->object->getEnchantment();
+
+			if (enchantment && mwse::lua::event::MagicSelectionChangedEvent::getEventEnabled()) {
+				auto stateHandle = mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle();
+				sol::object response = stateHandle.triggerEvent(new mwse::lua::event::MagicSelectionChangedEvent(enchantment, equipmentStack->object));
+			}
+		}
 	}
 
 	const auto TES3_UpdateEncumbrance = reinterpret_cast<void(__cdecl*)()>(0x5CD1B0);
@@ -804,9 +877,9 @@ namespace TES3::UI {
 		return true;
 	}
 
-	const auto TES3_UI_showSelectMenu = reinterpret_cast<void(__cdecl*)(TES3::Actor*, EventCallback*, const char*)>(0x5D35B0);
-	void showSelectMenu(TES3::Actor* actor, EventCallback* callback, const char* titleText) {
-		TES3_UI_showSelectMenu(actor, callback, titleText);
+	const auto TES3_UI_showInventorySelectMenu = reinterpret_cast<void(__cdecl*)(TES3::Actor*, EventCallback*, const char*)>(0x5D35B0);
+	void showInventorySelectMenu(TES3::Actor* actor, EventCallback* callback, const char* titleText) {
+		TES3_UI_showInventorySelectMenu(actor, callback, titleText);
 	}
 
 	const std::unordered_map<std::string, EventCallback*> inventorySelectFilterIdMap = {
@@ -817,6 +890,9 @@ namespace TES3::UI {
 		{ "mortar", reinterpret_cast<EventCallback*>(0x59A190) },
 		{ "quickUse", reinterpret_cast<EventCallback*>(0x608A90) },
 		{ "retort", reinterpret_cast<EventCallback*>(0x59A1C0) },
+		{ "soulGemFilled", reinterpret_cast<EventCallback*>(0x5C6B00) },
+
+		// Deprecated
 		{ "soulgemFilled", reinterpret_cast<EventCallback*>(0x5C6B00) },
 	};
 
@@ -882,7 +958,7 @@ namespace TES3::UI {
 
 		// Set our filter and show the menu.
 		*reinterpret_cast<EventCallback**>(0x7D3CA0) = filter;
-		showSelectMenu(actor, callback, titleText);
+		showInventorySelectMenu(actor, callback, titleText);
 
 		// Reset our overrides.
 		noValidItemsTextOverride = nullptr;
@@ -892,6 +968,124 @@ namespace TES3::UI {
 		auto MenuInventorySelect = *reinterpret_cast<UI_ID*>(0x7D3C14);
 		if (TES3::UI::findMenu(MenuInventorySelect)) {
 			TES3::UI::enterMenuMode(MenuInventorySelect);
+		}
+	}
+
+	static sol::protected_function magicSelectLuaCallback = sol::nil;
+
+	const auto TES3_UI_MenuQuick_setSlot = reinterpret_cast<bool(__cdecl*)(int, TES3::Item*, TES3::ItemData*, TES3::Spell*)>(0x6084E0);
+	bool onMagicSelect(int quickType, TES3::Item* item, TES3::ItemData* itemData, TES3::Spell* spell) {
+		// This function is shared with the quick keys menu.
+
+		if (magicSelectLuaCallback.valid()) {
+			// The menu was opened from a lua script. Run the callback.
+			auto stateHandle = mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle();
+			sol::table params = stateHandle.state.create_table();
+			params["item"] = item;
+			params["itemData"] = itemData;
+			params["spell"] = spell;
+
+			sol::protected_function_result result = magicSelectLuaCallback(params);
+			if (!result.valid()) {
+				sol::error error = result;
+				mwse::log::getLog() << "Lua error encountered during UI magic select callback:" << std::endl << error.what() << std::endl;
+			}
+
+			// Reset callback after use.
+			magicSelectLuaCallback = sol::nil;
+			return true;
+		}
+		else {
+			// The menu was opened from the quick keys menu. Call the original function.
+			return TES3_UI_MenuQuick_setSlot(quickType, item, itemData, spell);
+		}
+	}
+
+	const auto TES3_UI_MenuMagicSelect_onCancel = reinterpret_cast<bool(__cdecl*)(Element*, Property, int, int, Element*)>(0x5E8040);
+	bool __cdecl onMagicSelectCancel(Element* widget, Property property, int data0, int data1, Element* source) {
+		// This function is shared with the quick keys menu.
+
+		if (magicSelectLuaCallback.valid()) {
+			// The menu was opened from a lua script. Run the callback.
+			auto stateHandle = mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle();
+			sol::table params = stateHandle.state.create_table();
+
+			sol::protected_function_result result = magicSelectLuaCallback(params);
+			if (!result.valid()) {
+				sol::error error = result;
+				mwse::log::getLog() << "Lua error encountered during UI magic select callback:" << std::endl << error.what() << std::endl;
+			}
+
+			// Reset callback after use.
+			magicSelectLuaCallback = sol::nil;
+		}
+
+		return TES3_UI_MenuMagicSelect_onCancel(widget, property, data0, data1, source);
+	}
+
+	const auto TES3_UI_showMagicSelectMenu = reinterpret_cast<void(__cdecl*)()>(0x5E7580);
+	void showMagicSelectMenu() {
+		TES3_UI_showMagicSelectMenu();
+	}
+
+	void showMagicSelectMenu_lua(sol::table params) {
+		// Get our callback and place it in a global.
+		EventCallback* callback = reinterpret_cast<EventCallback*>(&luaDispatchedSelectCallback);
+		magicSelectLuaCallback = mwse::lua::getOptionalParam<sol::protected_function>(params, "callback", sol::nil);
+		if (!magicSelectLuaCallback.valid()) {
+			throw std::exception("Invalid callback argument provided.");
+		}
+
+		// Get our filters.
+		bool selectSpells = mwse::lua::getOptionalParam<bool>(params, "selectSpells", true);
+		bool selectPowers = mwse::lua::getOptionalParam<bool>(params, "selectPowers", true);
+		bool selectEnchanted = mwse::lua::getOptionalParam<bool>(params, "selectEnchanted", true);
+
+		// And our title text.
+		auto titleText = mwse::lua::getOptionalParam<const char*>(params, "title", nullptr);
+		if (titleText == nullptr) {
+			throw std::exception("Invalid title argument.");
+		}
+
+		// Show the menu.
+		showMagicSelectMenu();
+
+		auto MenuMagicSelectID = *reinterpret_cast<UI_ID*>(0x7D4570);
+		auto menuMagicSelect = findMenu(MenuMagicSelectID);
+		if (menuMagicSelect) {
+			// Set title, add a little whitespace.
+			auto title = *menuMagicSelect->getContentElement()->vectorChildren.begin();
+			title->setText(titleText);
+			title->borderBottom = 6;
+
+			// Filter by hiding sections that aren't enabled.
+			auto MenuMagicSpellsListID = *reinterpret_cast<UI_ID*>(0x7D431A);
+			auto magicList = menuMagicSelect->findChild(MenuMagicSpellsListID)->getContentElement();
+			auto children = magicList->vectorChildren.first;
+
+			if (!selectPowers) {
+				// Hide title and list.
+				children[0]->setVisible(false);
+				children[1]->setVisible(false);
+			}
+			if (!(selectPowers && selectSpells)) {
+				// Hide divider.
+				children[2]->setVisible(false);
+			}
+			if (!selectSpells) {
+				// Hide title and list.
+				children[3]->setVisible(false);
+				children[4]->setVisible(false);
+			}
+			if (!(selectSpells && selectEnchanted)) {
+				// Hide divider.
+				children[5]->setVisible(false);
+			}
+			if (!selectEnchanted) {
+				// Hide title and list.
+				children[6]->setVisible(false);
+				children[7]->setVisible(false);
+			}
 		}
 	}
 
@@ -914,6 +1108,69 @@ namespace TES3::UI {
 
 	void choice(const char* text, int index) {
 		createResponseText(nullptr, text, 2, index);
+	}
+
+	std::tuple<int, int> textLayoutGetFontHeight_lua(sol::table params) {
+		int fontIndex = mwse::lua::getOptionalParam<int>(params, "font", 0);
+
+		if (fontIndex < 0 || fontIndex >= 3) {
+			throw std::invalid_argument("Invalid 'font' parameter provided.");
+		}
+
+		auto font = TES3::WorldController::get()->fonts[fontIndex];
+		return { font->maxGlyphHeight, font->fontData->lineHeight };
+	}
+
+	const auto TES3_UI_Font_getTextExtent = reinterpret_cast<void(__thiscall*)(TES3::Font*, const char*, float*, float*, int, int, bool)>(0x40B190);
+	void textLayoutGetTextExtent(TES3::Font* font, const char* text, float* out_width, float* out_verticalAdvance, int maxCharsOrLineMode, bool useLineHeight) {
+		TES3_UI_Font_getTextExtent(font, text, out_width, out_verticalAdvance, maxCharsOrLineMode, 0, useLineHeight);
+	}
+
+	std::tuple<int, int, int> textLayoutGetTextExtent_lua(sol::table params) {
+		sol::optional<const char*> text = params["text"];
+		int fontIndex = mwse::lua::getOptionalParam<int>(params, "font", 0);
+		bool firstLineOnly = mwse::lua::getOptionalParam<bool>(params, "firstLineOnly", false);
+
+		if (fontIndex < 0 || fontIndex >= 3) {
+			throw std::invalid_argument("Invalid 'font' parameter provided.");
+		}
+		if (!text) {
+			throw std::invalid_argument("Invalid 'text' parameter provided.");
+		}
+		
+		auto font = TES3::WorldController::get()->fonts[fontIndex];
+		float width, verticalAdvance;
+		textLayoutGetTextExtent(font, text.value(), &width, &verticalAdvance, firstLineOnly ? -2 : -1, false);
+
+		// Calculated label height from text layout system.
+		float height = std::floor(verticalAdvance + font->maxGlyphHeight + 1.5f);
+
+		return { width, height, verticalAdvance };
+	}
+
+	const auto TES3_UI_Font_wrapTextInPlace = reinterpret_cast<int(__thiscall*)(TES3::Font*, char*, unsigned int, bool, char)>(0x40BBC0);
+	int textLayoutWrapTextInPlace(TES3::Font* font, char* textBuffer, unsigned int maxWidth, bool ignoreLinkDelimiters, char newlineReplacement) {
+		return TES3_UI_Font_wrapTextInPlace(font, textBuffer, maxWidth, ignoreLinkDelimiters, newlineReplacement);
+	}
+
+	std::tuple<std::string, int> textLayoutWrapText_lua(sol::table params) {
+		sol::optional<const char*> text = params["text"];
+		int fontIndex = mwse::lua::getOptionalParam<int>(params, "font", 0);
+		int maxWidth = mwse::lua::getOptionalParam<int>(params, "maxWidth", -1);
+		bool ignoreLinkDelimiters = mwse::lua::getOptionalParam<bool>(params, "ignoreLinkDelimiters", false);
+
+		if (fontIndex < 0 || fontIndex >= 3) {
+			throw std::invalid_argument("Invalid 'font' parameter provided.");
+		}
+		if (!text) {
+			throw std::invalid_argument("Invalid 'text' parameter provided.");
+		}
+
+		auto font = TES3::WorldController::get()->fonts[fontIndex];
+		std::string textBuffer{ text.value() };
+
+		int lineCount = textLayoutWrapTextInPlace(font, textBuffer.data(), maxWidth, ignoreLinkDelimiters, '\n');
+		return { textBuffer, lineCount };
 	}
 
 	void pushNewUIID(DWORD address, const char* name) {
@@ -979,17 +1236,22 @@ namespace TES3::UI {
 
 	void hook() {
 		// Patch mousewheel event dispatch to not redirect to the top-level element,
-		// allowing mousewheel to apply to more than the first scrollpane in a menu
+		// allowing mousewheel to apply to more than the first scrollpane in a menu.
 		mwse::writePatchCodeUnprotected(TES3_hook_dispatchMousewheelUp, (BYTE*)&patchDispatchMousewheelUp, patchDispatchMousewheelUp_size);
 		mwse::writePatchCodeUnprotected(TES3_hook_dispatchMousewheelDown, (BYTE*)&patchDispatchMousewheelDown, patchDispatchMousewheelDown_size);
 
-		// Patch UI layout engine to reflow wrapped text content on size changes
+		// Patch UI layout engine to reflow wrapped text content on size changes.
 		auto patch = &Element::patchUpdateLayout_propagateFlow;
 		mwse::genCallEnforced(0x585E1E, 0x584850, *reinterpret_cast<DWORD*>(&patch));
 		mwse::genCallEnforced(0x5863AE, 0x584850, *reinterpret_cast<DWORD*>(&patch));
 
 		// Patch item selection no items message to allow callbacks and changed text.
 		mwse::genCallEnforced(0x5D37CF, 0x5F90C0, reinterpret_cast<DWORD>(messagePlayerForNoValidItems));
+
+		// Patch quick keys magic select menu to allow general purpose use.
+		mwse::genCallEnforced(0x5E7648, 0x6084E0, reinterpret_cast<DWORD>(onMagicSelect));
+		mwse::genCallEnforced(0x5E76DC, 0x6084E0, reinterpret_cast<DWORD>(onMagicSelect));
+		mwse::writeValueEnforced<DWORD>(0x5E7103+1, 0x5E8040, reinterpret_cast<DWORD>(onMagicSelectCancel));
 
 		// Patch element resetting to clear up any custom event handlers.
 		mwse::genCallEnforced(0x578517, 0x581440, reinterpret_cast<DWORD>(patchElementDeletion), 0x578528 - 0x578517);
@@ -1003,6 +1265,10 @@ namespace TES3::UI {
 		mwse::genCallEnforced(0x621CBB, 0x595370, reinterpret_cast<DWORD>(patchSpellmakingMenuExitMenuModeIfNoDialogMenu));
 		mwse::genCallEnforced(0x622DAA, 0x595370, reinterpret_cast<DWORD>(patchSpellmakingMenuExitMenuModeIfNoDialogMenu));
 		mwse::writeValueEnforced<BYTE>(0x62295A, 0x75, 0x7D);
+		
+		// Patch inventory item tooltip to get accurate item count from the tile, which was failing on split item stacks.
+		mwse::writeValueEnforced<DWORD>(0x5CC0A9+1, 0x5CDF90, reinterpret_cast<DWORD>(onInventoryTileTooltip));
+		mwse::writeValueEnforced<DWORD>(0x5CCC6F+1, 0x5CDF90, reinterpret_cast<DWORD>(onInventoryTileTooltip));
 
 		// Provide some UI IDs for elements that don't have them:
 		// Tooltips (HelpMenu)

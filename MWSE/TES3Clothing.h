@@ -40,6 +40,8 @@ namespace TES3 {
 		unsigned short enchantCapacity; // 0xB2
 		Enchantment * enchantment; // 0xB4
 
+		static constexpr auto OBJECT_TYPE = ObjectType::Clothing;
+
 		Clothing();
 		~Clothing();
 
@@ -52,6 +54,7 @@ namespace TES3 {
 
 		std::reference_wrapper<WearablePart[7]> getParts();
 
+		bool isUsableByBeasts() const;
 	};
 	static_assert(sizeof(Clothing) == 0xB8, "TES3::Clothing failed size validation");
 

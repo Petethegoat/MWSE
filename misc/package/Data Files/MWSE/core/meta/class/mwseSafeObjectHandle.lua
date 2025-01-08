@@ -2,7 +2,7 @@
 -- More information: https://github.com/MWSE/MWSE/tree/master/docs
 
 --- @meta
---- A handle to safely operate on ([tes3object](https://mwse.github.io/MWSE/types/tes3object/)).
+--- A handle to safely operate on [tes3object](https://mwse.github.io/MWSE/types/tes3object/).
 ---
 --- [Examples available in online documentation](https://mwse.github.io/MWSE/types/mwseSafeObjectHandle).
 --- @class mwseSafeObjectHandle
@@ -12,6 +12,7 @@ mwseSafeObjectHandle = {}
 --- @return tes3reference result No description yet available.
 function mwseSafeObjectHandle:getObject() end
 
---- Returns true if the object of this handle is still valid. Objects that are invalid do no longer exist and cannot be used.
+--- Returns true if the object of this handle is still valid. Invalid objects no longer exist or were deleted.
+--- @return boolean valid No description yet available.
 function mwseSafeObjectHandle:valid() end
 

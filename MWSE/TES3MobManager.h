@@ -28,8 +28,9 @@ namespace TES3 {
 		//
 
 		bool detectAttack(MobileActor* actor);
-		bool detectPresence(MobileActor * actor, bool unknown = true);
-		bool detectSneak(MobileActor * detector, MobileActor * target, bool unknown = true);
+		bool detectPresence(MobileActor* actor, bool ignoreCreatures = true);
+		bool detectByActor(MobileActor* detector, MobileActor* target);
+		bool detectSneak(MobileActor* detector, MobileActor* target, bool unknown = true);
 		void findActorsInProximity(Vector3 * position, float range, IteratedList<MobileActor*>* outputList);
 		void checkAlarmRadius(MobileActor * actor, IteratedList<AIPlanner*> * container);
 		void checkPlayerDistance();
@@ -39,6 +40,12 @@ namespace TES3 {
 		float getAIDistanceScale() const;
 		void setAIDistanceScale(float scalar);
 
+		//
+		// Custom functions.
+		//
+
+		sol::table getAllMobileActors(sol::this_state ts);
+		sol::table getAllPlanners(sol::this_state ts);
 	};
 	static_assert(sizeof(ProcessManager) == 0x830, "TES3::ProcessManager failed size validation");
 
@@ -95,9 +102,11 @@ namespace TES3 {
 		// Custom functions.
 		//
 
-		bool hasMobileCollision(const MobileActor* mobile);
-		void enableMobileCollision(MobileActor* mobile);
-		void disableMobileCollision(MobileActor* mobile);
+		bool hasMobileCollision(const MobileObject* mobile);
+		void enableMobileCollision(MobileObject* mobile);
+		void disableMobileCollision(MobileObject* mobile);
+		void resetConstantVelocities();
+		void clampAllActors();
 
 		Vector3* getGravity();
 		void setGravity(sol::stack_object);

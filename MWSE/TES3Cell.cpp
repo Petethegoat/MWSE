@@ -12,6 +12,24 @@
 #include "TES3Region.h"
 
 namespace TES3 {
+	//
+	// PathGrid
+	//
+
+	const auto TES3_PathGrid_Show = reinterpret_cast<void(__thiscall*)(PathGrid*)>(0x4F4560);
+	void PathGrid::show() {
+		TES3_PathGrid_Show(this);
+	}
+
+	const auto TES3_PathGrid_Hide = reinterpret_cast<void(__thiscall*)(PathGrid*)>(0x4F48D0);
+	void PathGrid::hide() {
+		TES3_PathGrid_Hide(this);
+	}
+
+	//
+	// Cell
+	//
+
 	const auto TES3_Cell_constructor = reinterpret_cast<Cell*(__thiscall *)(Cell*)>(0x4DB500);
 	Cell * Cell::create() {
 		return TES3_Cell_constructor(mwse::tes3::_new<Cell>());
@@ -194,8 +212,8 @@ namespace TES3 {
 		setCellFlag(TES3::CellFlag::SleepIsIllegal, value);
 	}
 
-	bool Cell::getIsLoaded() const {
-		return getCellFlag(TES3::CellFlag::IsLoaded);
+	bool Cell::getIsMarkerDrawn() const {
+		return getCellFlag(TES3::CellFlag::MarkerDrawn);
 	}
 
 	bool Cell::getIsOrBehavesAsExterior() const {
@@ -225,6 +243,10 @@ namespace TES3 {
 	}
 
 	void Cell::setCellInactive() {
+		if (activeCells.find(this) == activeCells.end()) {
+			return;
+		}
+
 		// Fire off reference inactive events.
 		for (auto ref : actors) ref->setReferenceInactive();
 		for (auto ref : persistentRefs) ref->setReferenceInactive();

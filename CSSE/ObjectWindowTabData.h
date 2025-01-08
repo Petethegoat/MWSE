@@ -49,7 +49,7 @@ namespace se::cs::dialog::object_window {
 		virtual void getDisplayInfo(LPNMLVDISPINFOA displayInfo) const = 0;
 		virtual int sortObject(const Object* lParam1, const Object* lParam2, bool sortOrderAsc) const = 0;
 
-		using ColumnSettings = Settings_t::ObjectWindowSettings::ColumnSettings;
+		using ColumnSettings = Settings_t::ColumnSettings;
 		virtual ColumnSettings& getSettings() const = 0;
 
 		void insert(HWND hWnd, size_t index) const;
@@ -99,11 +99,13 @@ namespace se::cs::dialog::object_window {
 	DEFINE_COLUMN(Blocked);
 	DEFINE_COLUMN(BookIsScroll);
 	DEFINE_COLUMN(BookTeaches);
+	DEFINE_COLUMN(ChanceNone);
 	DEFINE_COLUMN(Cost);
 	DEFINE_COLUMN(Count);
 	DEFINE_COLUMN(CreatureIsBipedal);
 	DEFINE_COLUMN(CreatureList);
 	DEFINE_COLUMN(CreatureMovementType);
+	DEFINE_COLUMN(CreatureSoulValue);
 	DEFINE_COLUMN(CreatureSound);
 	DEFINE_COLUMN(CreatureUsesWeaponAndShield);
 	DEFINE_COLUMN(Enchanting);
@@ -130,6 +132,7 @@ namespace se::cs::dialog::object_window {
 	DEFINE_COLUMN(Rank);
 	DEFINE_COLUMN(Script);
 	DEFINE_COLUMN(Sound);
+	DEFINE_COLUMN(SpellRange);
 	DEFINE_COLUMN(Type);
 	DEFINE_COLUMN(Uses);
 	DEFINE_COLUMN(Value);
@@ -185,6 +188,7 @@ namespace se::cs::dialog::object_window {
 		static TabColumnArmorRating tabColumnArmorRating;
 		static TabColumnAutoCalc tabColumnAutoCalc;
 		static TabColumnBlocked tabColumnBlocked;
+		static TabColumnChanceNone tabColumnChanceNone;
 		static TabColumnBookIsScroll tabColumnBookIsScroll;
 		static TabColumnBookTeaches tabColumnBookTeaches;
 		static TabColumnCost tabColumnCost;
@@ -192,6 +196,7 @@ namespace se::cs::dialog::object_window {
 		static TabColumnCreatureIsBipedal tabColumnCreatureIsBipedal;
 		static TabColumnCreatureList tabColumnCreatureList;
 		static TabColumnCreatureMovementType tabColumnCreatureMovementType;
+		static TabColumnCreatureSoulValue tabColumnCreatureSoul;
 		static TabColumnCreatureSound tabColumnCreatureSound;
 		static TabColumnCreatureUsesWeaponAndShield tabColumnCreatureUsesWeaponAndShield;
 		static TabColumnEffect tabColumnEffect1;
@@ -221,6 +226,7 @@ namespace se::cs::dialog::object_window {
 		static TabColumnRace tabColumnRace;
 		static TabColumnScript tabColumnScript;
 		static TabColumnSound tabColumnSound;
+		static TabColumnSpellRange tabColumnSpellRange;
 		static TabColumnType tabColumnType;
 		static TabColumnUses tabColumnUses;
 		static TabColumnValue tabColumnValue;

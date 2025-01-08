@@ -17,9 +17,15 @@ function toml.decode(input) end
 function toml.encode(input) end
 
 --- Loads a toml file from `path`, using `toml.decode`. Unlike the related `json.loadfile` function, this is relative to the current working directory, and not relative to Data Files\MWSE. A file extension should be part of the `path` string.
---- @param path string The file to write to, relative to the current working directory (typically the Morrowind installation folder).
+--- @param path string The file to read from, relative to the current working directory (typically the Morrowind installation folder).
 --- @return table? data The decoded data, or `nil` if the file could not be found.
+--- @return table? error Information about why the toml file could not be decoded. This result will only be given if the operation fails.
 function toml.loadFile(path) end
+
+--- Loads a toml metadata file with a given key. This function is identical to `toml.loadFile` with a mod's metadata key to determine its path. Active lua mods already have their metadata loaded, which can be retrieved using `tes3.getLuaModMetadata()`.
+--- @param key string The key for the metadata. This is the prefix before `-metadata.toml`, and matches a file found in Data Files.
+--- @return table? data The decoded data, or `nil` if the file could not be loaded.
+function toml.loadMetadata(key) end
 
 --- Saves a serializable table to `path`, using `toml.encode`. Unlike the related `json.savefile` function, this is relative to the current working directory, and not relative to Data Files\MWSE. A file extension should be part of the `path` string.
 --- @param path string The file to write to, relative to the current working directory (typically the Morrowind installation folder).

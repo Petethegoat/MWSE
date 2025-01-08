@@ -4,6 +4,8 @@
 
 #include "StringUtil.h"
 
+#include "CSPhysicalObject.h"
+
 namespace se::cs {
 	size_t RecordHandler::getCellCount() const {
 		const auto RecordHandler_getCellCount = reinterpret_cast<size_t(__thiscall*)(const RecordHandler*)>(0x401F7D);
@@ -18,6 +20,11 @@ namespace se::cs {
 	Cell* RecordHandler::getCellByID(const char* id) const {
 		const auto RecordHandler_getCellByID = reinterpret_cast<Cell * (__thiscall*)(const RecordHandler*, const char*)>(0x403B66);
 		return RecordHandler_getCellByID(this, id);
+	}
+
+	Reference* RecordHandler::getReference(const PhysicalObject* object) const {
+		const auto RecordHandler_getReference = reinterpret_cast<Reference*(__thiscall*)(const RecordHandler*, const PhysicalObject*)>(0x4042A0);
+		return RecordHandler_getReference(this, object);
 	}
 
 	const char* RecordHandler::getBaseAnimation(int sex, bool firstPerson) const {
@@ -81,5 +88,10 @@ namespace se::cs {
 
 		// TODO: Make this actually show the correct attribute/skill stuff.
 		sprintf_s(buffer, bufferSize, "%s", gmst->value.asString);
+	}
+
+	GameFile* RecordHandler::getAvailableGameFileByIndex(unsigned int index) const {
+		const auto RecordHandler_getAvailableGameFileByIndex = reinterpret_cast<GameFile * (__thiscall*)(const RecordHandler*, size_t)>(0x501140);
+		return RecordHandler_getAvailableGameFileByIndex(this, index);
 	}
 }

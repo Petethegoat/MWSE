@@ -45,8 +45,8 @@ function mge.enableShader(params) end
 --- @deprecated
 function mge.enableZoom() end
 
---- Returns the lighting mode used by MGE XE. These values map to `mge.lightingMode.*` constants.
---- @return number mode Maps to the `mge.lightingMode.*` constants.
+--- Returns the lighting mode used by MGE XE. These values map to [`mge.lightingMode`](https://mwse.github.io/MWSE/references/mge/lighting-modes/) constants.
+--- @return mge.lightingMode mode No description yet available.
 function mge.getLightingMode() end
 
 --- Gets the window's vertical resolution. Use `tes3.getViewportSize()` instead.
@@ -64,7 +64,7 @@ function mge.getScreenWidth() end
 function mge.getUIScale() end
 
 --- Gets the MGE version. Returns a table with keys `major`, `minor`, and `patch`.
---- @return table result No description yet available.
+--- @return mgeVersionTable result No description yet available.
 function mge.getVersion() end
 
 --- Gets the weather distant land fog. Use `mge.weather.getDistantFog()` instead.
@@ -113,8 +113,8 @@ function mge.saveScreenshot(params) end
 --- @field path string No description yet available.
 --- @field captureWithUI boolean? *Default*: `false`. If set to `true`, the screenshot will include the user interface.
 
---- Sets the lighting mode used by MGE XE. The values passed can be used from the `mge.lightingMode.*` constants.
---- @param mode number Maps from the `mge.lightingMode.*` constants.
+--- Sets the lighting mode used by MGE XE. The values passed can be used from the [`mge.lightingMode`](https://mwse.github.io/MWSE/references/mge/lighting-modes/) constants.
+--- @param mode mge.lightingMode No description yet available.
 function mge.setLightingMode(mode) end
 
 --- Sets a shader float value. Use the named variable interface on the shader handle instead.
@@ -212,3 +212,9 @@ function mge.zoomOut(params) end
 --- @field amount number No description yet available.
 
 mge.lightingMode = require("mge.lightingMode")
+
+--- @alias mge.lightingMode
+---| `mge.lightingMode.perPixel`
+---| `mge.lightingMode.perPixelInteriorOnly`
+---| `mge.lightingMode.vertex`
+

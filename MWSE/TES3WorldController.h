@@ -28,6 +28,7 @@ namespace TES3 {
 		Up = 0,
 		Down = 1,
 		Direct = 2,
+		Consume = 3
 	};
 
 	struct WorldControllerRenderCamera {
@@ -82,25 +83,25 @@ namespace TES3 {
 
 	struct WorldControllerRenderTarget : WorldControllerRenderCamera {
 		NI::Pointer<NI::RenderedTexture> renderedTexture; // 0x2C
-		NI::Pointer<NI::Object> unknown_0x30;
+		NI::Pointer<NI::SourceTexture> readbackTexture; // 0x30
 		int unknown_0x34;
-		int unknown_0x38;
-		int unknown_0x3C;
-		int unknown_0x40;
-		int unknown_0x44;
+		unsigned int rendererWidth; // 0x38
+		unsigned int rendererHeight; // 0x3C
+		unsigned int targetWidth; // 0x40
+		unsigned int targetHeight; // 0x44
 		int unknown_0x48;
 		NI::Pointer<NI::ZBufferProperty> zBufferProperty; // 0x4C
-		int unknown_0x50;
-		int unknown_0x54;
-		NI::Pointer<NI::Object> unknown_0x58; // OffscreenSceneGraph::MasterPropertyAccumulator
+		void* offscreenD3DSurface; // 0x50
+		void* textureD3DSurface; // 0x54
+		NI::Pointer<NI::Object> accumulator; // OffscreenSceneGraph::MasterPropertyAccumulator
 		int unknown_0x5C;
 		NI::Pointer<NI::DirectionalLight> directionalLight; // 0x60
 		int unknown_0x64;
 		NI::Pointer<NI::Object> unknown_0x68; // NiScreenPolygon
-		int unknown_0x6C;
-		int unknown_0x70;
-		int unknown_0x74;
-		int unknown_0x78;
+		bool readbackAlphaDataInitialized; // 0x6C
+		char* readbackAlphaChannelData; // 0x70
+		void* unknown_0x74;
+		void* unknown_0x78;
 		NI::Pointer<NI::AlphaProperty> alphaProperty; // 0x7C
 		NI::Pointer<NI::VertexColorProperty> vertexColorProperty; // 0x80
 
@@ -190,13 +191,30 @@ namespace TES3 {
 	static_assert(sizeof(InventoryData) == 0x24, "TES3::InventoryData failed size validation");
 
 	struct Font {
+		struct FontData {
+			struct TextureData {
+				int unknown_0;
+				char filename[32];
+			};
+			struct GlyphData {
+				int unknown_0;
+				TES3::Vector2 topLeft, topRight, bottomLeft, bottomRight;
+				float width, height, leftKerning, rightKerning, ascent;
+			};
+
+			float lineHeight; // 0x0
+			int textureCount; // 0x4
+			TextureData textures[8]; // 0x8
+			GlyphData glyphs[256]; // 0x12C
+		};
+
 		short propertyCount; // 0x0
 		const char* filePath; // 0x4
 		NI::Property* texturingProperties[8]; // 0x8 // Up to 8 NiTexturingProperty pointers, filled count is stored by propertyCount.
 		NI::Property* vertexColorProperty; // 0x28 // NiVertexColorProperty.
-		int unknown_0x2C;
-		int unknown_0x30;
-		void* rawFontData; // 0x34 // The raw .fnt file contents.
+		float maxGlyphHeight; // 0x2C // Maximum possible height of a single line of text.
+		float layoutCurrentYOffset; // 0x30 // Running Y offset from UI layout function.
+		FontData* fontData; // 0x34 // The .fnt file contents.
 
 		Font() = delete;
 		~Font() = delete;
@@ -206,11 +224,12 @@ namespace TES3 {
 		char* getSubstituteResult() const;
 	};
 	static_assert(sizeof(Font) == 0x38, "TES3::Font failed size validation");
+	static_assert(sizeof(Font::FontData) == 0x3928, "TES3::Font::FontData failed size validation");
 
 	struct JournalHTML {
 		bool changedSinceLastSync; // 0x0
 		char* data; // 0x4
-		unsigned int length; // 0x8
+		unsigned int dataBufferSize; // 0x8
 
 		JournalHTML() = delete;
 		~JournalHTML() = delete;
@@ -328,7 +347,7 @@ namespace TES3 {
 		bool flagMenuMode; // 0xD6
 		char unknown_0xD7;
 		bool collisionEnabled; // 0xD8
-		char unknown_0xD9;
+		bool showActorCollisionBoxes; // 0xD9
 		char disableAI; // 0xDA
 		bool stopGameLoop; // 0xDB
 		char unknown_0xDC;
@@ -409,7 +428,8 @@ namespace TES3 {
 		_declspec(dllexport) void playItemUpDownSound(BaseObject* item, ItemSoundState state = ItemSoundState::Up, Reference* reference = nullptr);
 		_declspec(dllexport) float getSimulationTimestamp();
 		_declspec(dllexport) void processGlobalScripts();
-		_declspec(dllexport) void startGlobalScript(Script* script, const Reference* reference = nullptr);
+		_declspec(dllexport) void startGlobalScript(Script* script, Reference* reference = nullptr);
+		void startGlobalScriptBySourceID(Script* script, unsigned int sourceID);
 		_declspec(dllexport) void stopGlobalScript(Script* script);
 		_declspec(dllexport) bool isGlobalScriptRunning(const Script* script) const;
 
@@ -429,18 +449,29 @@ namespace TES3 {
 		void setAIDistanceScale(float scale);
 
 		void rechargerAddItem(Object* item, ItemData* itemData, Enchantment* enchantment);
+		bool getLevitationDisabled() const;
+		void setLevitationDisabled(bool disable);
+
+		// This puts the next music track into the game's thread-safe string buffer.
+		bool selectNextMusicTrack(MusicSituation situation) const;
 
 		//
 		// Custom functions.
 		//
 
+		int getShadowLevel() const;
+		void setShadowLevel(int shadows);
 		_declspec(dllexport) void tickClock();
 		_declspec(dllexport) void checkForDayWrapping();
+		bool isChargenStarted() const;
+		bool isChargenRunning() const;
+		bool isChargenFinished() const;
 
 		//
 		// Helpful static variables.
 		//
 
+		static float realDeltaTime;
 		static float simulationTimeScalar;
 	};
 	static_assert(sizeof(WorldController) == 0x374, "TES3::WorldController failed size validation");

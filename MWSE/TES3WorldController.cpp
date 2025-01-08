@@ -5,6 +5,7 @@
 #include "TES3GameFile.h"
 #include "TES3GameSetting.h"
 #include "TES3GlobalVariable.h"
+#include "TES3MagicInstanceController.h"
 #include "TES3MobManager.h"
 #include "TES3MobilePlayer.h"
 #include "TES3NPC.h"
@@ -18,6 +19,9 @@
 #include "TES3Util.h"
 
 #include "LuaPlayItemSoundEvent.h"
+#include "LuaMusicSelectTrackEvent.h"
+#include "LuaSimulatedEvent.h"
+#include "LuaStartGlobalScriptEvent.h"
 
 #include "LuaManager.h"
 
@@ -388,10 +392,13 @@ namespace TES3 {
 		// Write to in-memory HTML.
 		if (data) {
 			const auto dataLength = strlen(data);
-			if (dataLength + textLength >= length) {
-				// Grow to the next heighest multiple of 1024 that fits.
+			if (dataLength + textLength >= dataBufferSize) {
+				// Grow to the next highest multiple of 1024 that fits.
 				unsigned int newTextLength = dataLength + textLength;
-				data = (char*)mwse::tes3::realloc(data, newTextLength + (1024 - newTextLength % 1024));
+				unsigned int newBufferSize = newTextLength + (1024 - newTextLength % 1024);
+
+				data = (char*)mwse::tes3::realloc(data, newBufferSize);
+				dataBufferSize = newBufferSize;
 			}
 			strcat(data, text);
 		}
@@ -439,6 +446,7 @@ namespace TES3 {
 	// WorldController
 	//
 
+	float WorldController::realDeltaTime = 0.0f;
 	float WorldController::simulationTimeScalar = 1.0f;
 
 	WorldController * WorldController::get() {
@@ -480,9 +488,49 @@ namespace TES3 {
 		TES3_WorldController_processGlobalScripts(this);
 	}
 
-	const auto TES3_WorldController_addGlobalScript = reinterpret_cast<void(__thiscall*)(WorldController*, Script*, const Reference*)>(0x40FA80);
-	void WorldController::startGlobalScript(Script* script, const Reference* reference) {
+	const auto TES3_WorldController_addGlobalScript = reinterpret_cast<void(__thiscall*)(WorldController*, Script*, Reference*)>(0x40FA80);
+	void WorldController::startGlobalScript(Script* script, Reference* reference) {
+		if (isGlobalScriptRunning(script)) {
+			return;
+		}
+
+		// Allow event overrides.
+		if (mwse::lua::event::StartGlobalScriptEvent::getEventEnabled()) {
+			auto& luaManager = mwse::lua::LuaManager::getInstance();
+			auto stateHandle = luaManager.getThreadSafeStateHandle();
+			sol::table result = stateHandle.triggerEvent(new mwse::lua::event::StartGlobalScriptEvent(script, reference));
+			if (result.valid() && result.get_or("block", false)) {
+				return;
+			}
+		}
+
 		TES3_WorldController_addGlobalScript(this, script, reference);
+	}
+
+	const auto TES3_WorldController_addGlobalScriptBySourceID = reinterpret_cast<void(__thiscall*)(WorldController*, Script*, unsigned int)>(0x40FA80);
+	void WorldController::startGlobalScriptBySourceID(Script* script, unsigned int sourceID) {
+		if (isGlobalScriptRunning(script)) {
+			return;
+		}
+
+		// Convert the source ID to a reference.
+		Reference* reference = nullptr;
+		constexpr auto invalid_id = std::numeric_limits<unsigned int>::max();
+		if (sourceID != invalid_id) {
+			reference = DataHandler::get()->nonDynamicData->resolveReferenceBySourceID(sourceID);
+		}
+
+		// Allow event overrides.
+		if (mwse::lua::event::StartGlobalScriptEvent::getEventEnabled()) {
+			auto& luaManager = mwse::lua::LuaManager::getInstance();
+			auto stateHandle = luaManager.getThreadSafeStateHandle();
+			sol::table result = stateHandle.triggerEvent(new mwse::lua::event::StartGlobalScriptEvent(script, reference));
+			if (result.valid() && result.get_or("block", false)) {
+				return;
+			}
+		}
+
+		TES3_WorldController_addGlobalScriptBySourceID(this, script, sourceID);
 	}
 
 	const auto TES3_WorldController_removeGlobalScript = reinterpret_cast<void(__thiscall*)(WorldController*, Script*)>(0x40FB00);
@@ -565,7 +613,76 @@ namespace TES3 {
 		TES3_WorldController_rechargerAddItem(this, item, enchantment, itemData);
 	}
 
+	bool WorldController::getLevitationDisabled() const {
+		return flagLevitationDisabled;
+	}
+
+	void WorldController::setLevitationDisabled(bool disable) {
+		if (disable) {
+			// Ensure active leviation is cancelled. Logic copied from mwscript DisableLevitation.
+			auto macp = getMobilePlayer();
+			magicInstanceController->removeSpellsByEffect(macp->reference, EffectID::Levitate, 100);
+
+			if (macp->getEffectAttributeLevitate()) {
+				macp->setEffectAttributeLevitate(0);
+				macp->vTable.mobileNPC->setLevitating(macp, false);
+				if (!macp->getMovementFlagFlying() && !macp->getMovementFlagSwimming()) {
+					macp->vTable.mobileNPC->jumpingFalling(macp, true);
+				}
+			}
+		}
+
+		flagLevitationDisabled = disable;
+	}
+
+	const auto TES3_WorldController_selectNextMusicTrack = reinterpret_cast<bool(__thiscall*)(const WorldController*, MusicSituation)>(0x410EA0);
+	bool WorldController::selectNextMusicTrack(MusicSituation situation) const {
+		// Fire off the event.
+		if (mwse::lua::event::MusicSelectTrackEvent::getEventEnabled()) {
+			auto stateHandle = mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle();
+			sol::table eventData = stateHandle.triggerEvent(new mwse::lua::event::MusicSelectTrackEvent((int)situation));
+			if (eventData.valid()) {
+				sol::optional<std::string> musicPath = eventData["music"];
+				if (musicPath) {
+					char* buffer = mwse::tes3::getThreadSafeStringBuffer();
+					snprintf(buffer, 512, "Data Files/music/%s", musicPath.value().c_str());
+					return true;
+				}
+
+				// Only allow blocking if a music path was not provided.
+				if (eventData.get_or("block", false)) {
+					return false;
+				}
+			}
+		}
+
+		return TES3_WorldController_selectNextMusicTrack(this, situation);
+	}
+
+	int WorldController::getShadowLevel() const {
+		return bShadows;
+	}
+
+	const auto TES3_ShadowManager_setUseRealtimeShadows = reinterpret_cast<void(__thiscall*)(void*, bool)>(0x4360F0);
+	void WorldController::setShadowLevel(int shadows) {
+		// Check for state change.
+		const auto hadShadowsBefore = bShadows > 0;
+		const auto hasShadowsNow = shadows > 0;
+
+		bShadows = shadows;
+		if (hadShadowsBefore != hasShadowsNow) {
+			TES3_ShadowManager_setUseRealtimeShadows(shadowManager, hasShadowsNow);
+		}
+	}
+
 	void WorldController::tickClock() {
+		// Run post-simulate event before updating game time.
+		if (mwse::lua::event::SimulatedEvent::getEventEnabled()) {
+			auto& luaManager = mwse::lua::LuaManager::getInstance();
+			auto stateHandle = luaManager.getThreadSafeStateHandle();
+			stateHandle.triggerEvent(new mwse::lua::event::SimulatedEvent());
+		}
+
 		gvarGameHour->value += (deltaTime * gvarTimescale->value) / 3600.0f;
 		checkForDayWrapping();
 	}
@@ -640,5 +757,20 @@ namespace TES3 {
 		if (respawnContainers) {
 			ndd->respawnContainers();
 		}
+	}
+
+	bool WorldController::isChargenStarted() const {
+		// Chargenstate is 0 on the main menu.
+		return gvarCharGenState->value != 0.0;
+	}
+
+	bool WorldController::isChargenRunning() const {
+		// Chargenstate is set to 10 in vanilla, but this isn't guaranteed with mods, so instead check that it's > 0
+		return gvarCharGenState->value > 0.0;
+	}
+
+	bool WorldController::isChargenFinished() const {
+		// Vanilla sets Chargenstate to -1 once finished.
+		return gvarCharGenState->value < 0.0;
 	}
 }

@@ -16,7 +16,7 @@ namespace mwse {
 
 	private:
 		long getBitMaskForRecordType(long recordType);
-		bool passesFilter(TES3::BaseObject* record, long filter);
+		bool passesFilter(TES3::Object* record, long filter);
 
 		enum FilterMask {
 			FILTER_ACTI = 1,
@@ -99,7 +99,7 @@ namespace mwse {
 		long type = 0;
 		long value = 0;
 		float weight = 0;
-		char* name = NULL;
+		const char* name = NULL;
 		TES3::IteratedList<TES3::ItemStack*>::Node* next = NULL;
 
 		// If we aren't given a node, get the first one.
@@ -171,7 +171,7 @@ namespace mwse {
 		return 0x0;
 	}
 
-	bool xContentListFiltered::passesFilter(TES3::BaseObject* object, long filter) {
+	bool xContentListFiltered::passesFilter(TES3::Object* object, long filter) {
 		// Filter by record type. Unless we're not filtering only by enchantment.
 		if (filter != FILTER_ENCH && !(getBitMaskForRecordType(object->objectType) & filter)) {
 			return false;

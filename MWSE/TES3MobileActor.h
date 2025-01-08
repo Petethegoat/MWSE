@@ -185,12 +185,12 @@ namespace TES3 {
 		int hello; // 0x358
 		int alarm; // 0x35C
 		int barterGold; // 0x360
-		short widthInUnits; // 0x364
-		short heightInUnits; // 0x366
+		unsigned short widthRescaled; // 0x364 // 11.5 fixed point
+		unsigned short heightRescaled; // 0x366 // 11.5 fixed point
 		short readiedAmmoCount; // 0x368
 		short corpseHourstamp; // 0x36A
 		short greetDuration; // 0x36C
-		char unknown_0x36E;
+		signed char friendlyFireHitCount; // 0x36E
 		char unknown_0x36F; // Undefined.
 		float holdBreathTime; // 0x370
 		int unknown_0x374;
@@ -227,6 +227,8 @@ namespace TES3 {
 		float calculateArmorRating(int * armorItemCount = nullptr) const;
 		float getArmorRating_lua() const;
 
+		AnimationData* getAnimationData() const;
+
 		//
 		// Other related this-call functions.
 		//
@@ -237,11 +239,15 @@ namespace TES3 {
 
 		float getFacing() const;
 		float getViewToPoint(const Vector3* point) const;
+		float getViewToPoint_lua(sol::object point) const;
 		float getViewToPointWithFacing(float facing, const Vector3* point) const;
+		float getViewToPointWithFacing_lua(float facing, sol::object point) const;
 		float getViewToActor(const TES3::MobileActor* mobile) const;
+		float getViewToActor_lua(sol::object mobile) const;
 
 		float getBootsWeight() const;
 		float getWeaponSpeed() const;
+		float getAttackReach() const;
 
 		void startCombat(MobileActor*);
 		void startCombat_lua(sol::object target);
@@ -255,6 +261,7 @@ namespace TES3 {
 		float applyFatigueDamage(float damage, float swing, bool alwaysPlayHitVoice = false);
 		void applyJumpFatigueCost() const;
 		float applyDamage_lua(sol::table params);
+		float applyFatigueDamage_lua(float damage, float swing, bool alwaysPlayHitVoice = false);
 		float calcEffectiveDamage_lua(sol::table params);
 		bool doJump(Vector3 velocity, bool applyFatigueCost = true, bool isDefaultJump = false);
 		bool doJump_lua(sol::optional<sol::table> params);
@@ -291,11 +298,16 @@ namespace TES3 {
 		void playVoiceover(int);
 		void startDialogue();
 
-		bool isAffectedByAlchemy(Alchemy * alchemy) const;
-		bool isAffectedByEnchantment(Enchantment * enchantment) const;
-		bool isAffectedBySpell(Spell * spell) const;
+		bool isAffectedByAlchemy(Alchemy* alchemy) const;
+		bool isAffectedBySimilarAlchemy(Alchemy* alchemy) const;
+		bool isAffectedByEnchantment(Enchantment* enchantment) const;
+		bool isAffectedBySpell(Spell* spell) const;
 
 		bool isDiseased() const;
+		bool hasCommonDisease() const;
+		bool hasBlightDisease() const;
+		bool hasCorprusDisease() const;
+		bool hasVampirism() const;
 
 		SpellList* getSpellList();
 		IteratedList<Spell*> * getCombatSpellList();
@@ -324,7 +336,11 @@ namespace TES3 {
 		bool getMobileActorMovementFlag(ActorMovement::Flag) const;
 		void setMobileActorMovementFlag(ActorMovement::Flag, bool);
 
-		bool equipItem(Object* item, ItemData * itemData = nullptr, bool addItem = false, bool selectBestCondition = false, bool selectWorstCondition = false);
+		float getWidth() const;
+		float getHeight() const;
+
+		bool wearItem(Object* item, ItemData* itemData, bool addItem, bool unknown, bool useEvents);
+		bool equipItem(Object* item, ItemData* itemData = nullptr, bool addItem = false, bool selectBestCondition = false, bool selectWorstCondition = false, bool useEvents = false);
 		bool equip_lua(sol::object arg);
 		bool unequip_lua(sol::table args);
 		bool equipMagic(Object* source, ItemData* itemData = nullptr, bool equipItem = false, bool updateGUI = true);
@@ -334,10 +350,16 @@ namespace TES3 {
 
 		bool getWeaponReady() const;
 		void setWeaponReady(bool value);
+		bool forceWeaponAttack_lua(sol::optional<sol::table> params);
+		bool hitStun_lua(sol::optional<sol::table> params);
+		void hitStunTestAndReportCrime(float damage, bool wasKillingBlow);
 
 		void updateOpacity();
 		void notifyActorDeadOrDestroyed(MobileActor* mobileActor);
 		void removeFiredProjectiles(bool includeSpellProjectiles);
+		void resurrect(bool resetState, bool moveToStartingLocation);
+		void resurrect_lua(sol::table params);
+		void overrideHeadTrackingThisFrame(Reference* target);
 
 		ActorAnimationController* getAnimationController() const;
 		BaseObject* getCurrentSpell() const;
@@ -442,6 +464,8 @@ namespace TES3 {
 		void setMovementFlagRight(bool value);
 		bool getMovementFlagRunning() const;
 		void setMovementFlagRunning(bool value);
+		bool getMovementFlagSliding() const;
+		void setMovementFlagSliding(bool value);
 		bool getMovementFlagSneaking() const;
 		void setMovementFlagSneaking(bool value);
 		bool getMovementFlagFalling() const;
@@ -454,6 +478,8 @@ namespace TES3 {
 		void setMovementFlagTurnRight(bool value);
 		bool getMovementFlagWalking() const;
 		void setMovementFlagWalking(bool value);
+
+		bool isSpeaking() const;
 
 		bool isAffectedByObject_lua(sol::object object) const;
 

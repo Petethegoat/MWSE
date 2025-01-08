@@ -470,6 +470,27 @@ namespace mwse::lua {
 		return arg;
 	}
 
+	char* getThreadSafeStringBuffer() {
+		const auto TES3_getThreadSafeStringBuffer = reinterpret_cast<char* (__thiscall*)(char*)>(0x4D51B0);
+		return TES3_getThreadSafeStringBuffer(reinterpret_cast<char*>(0x7CB478));
+	}
+
+	void setThreadSafeStringBuffer(const char* string) {
+		auto buffer = getThreadSafeStringBuffer();
+		strncpy_s(buffer, 512u, string, strlen(string));
+	}
+
+	DWORD addressOf(void* object) {
+		if (object == nullptr) {
+			return NULL;
+		}
+		return *reinterpret_cast<DWORD*>(object);
+	}
+
+	void dump(void* data, unsigned int length) {
+		log::prettyDump(data, length);
+	}
+
 	void bindMWSEMemoryUtil() {
 		auto stateHandle = LuaManager::getInstance().getThreadSafeStateHandle();
 		auto& state = stateHandle.state;
@@ -482,6 +503,8 @@ namespace mwse::lua {
 		//
 
 		memory["reinterpret"] = reinterpret;
+		memory["addressOf"] = addressOf;
+		memory["dump"] = dump;
 
 		//
 		// Read operations.
@@ -489,6 +512,13 @@ namespace mwse::lua {
 
 		memory["readCallAddress"] = getCallAddress;
 		memory["readValue"] = readValue;
+
+		//
+		// Other internal operations that only really users of mwse.memory need to care about.
+		//
+
+		memory["getThreadSafeStringBuffer"] = getThreadSafeStringBuffer;
+		memory["setThreadSafeStringBuffer"] = setThreadSafeStringBuffer;
 
 		//
 		// Write operations.
@@ -527,6 +557,7 @@ namespace mwse::lua {
 		convertTo["tes3uiElement"] = convertArgTo<TES3::UI::Element*>;
 		convertTo["tes3worldController"] = convertArgTo<TES3::WorldController*>;
 		convertTo["uint"] = convertArgTo<DWORD>;
+		convertTo["void*"] = convertArgTo<void*>;
 
 		convertFrom = memory.create_named("convertFrom");
 		convertFrom["bool"] = convertArgFrom<bool>;

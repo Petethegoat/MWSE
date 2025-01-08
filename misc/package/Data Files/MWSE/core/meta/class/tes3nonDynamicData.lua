@@ -12,6 +12,7 @@
 --- @field factions tes3faction[] *Read-only*. A collection of all faction objects.
 --- @field globals tes3iterator *Read-only*. A collection of all global variable objects.
 --- @field isSavingOrLoading boolean *Read-only*. True when in the process of saving or loading the game.
+--- @field landTextures tes3landTexture[] *Read-only*. A collection of all land texture objects.
 --- @field lastLoadedFile tes3gameFile *Read-only*. The last loaded savegame file.
 --- @field magicEffects table<integer, tes3magicEffect> *Read-only*. A table of references to all magic effects. This is a dictionary, as the effect list may have gaps.
 --- @field mapTexture niSourceTexture Access to the World map texture.
@@ -69,6 +70,11 @@ function tes3nonDynamicData:findScript(id) end
 --- @param id string No description yet available.
 --- @return tes3sound result No description yet available.
 function tes3nonDynamicData:findSound(id) end
+
+--- Returns a tes3gameFile for a given file name.
+--- @param fileName string The name of the file to get.
+--- @return tes3gameFile|nil gameFile The game file associated with the name.
+function tes3nonDynamicData:getGameFile(fileName) end
 
 --- Locates a general object for a given ID.
 --- @param id string No description yet available.

@@ -1,16 +1,17 @@
 # Operator Definitions Guide
 
-Operator overloads are documented similarly to the methods of their parent class. The operator oveload definition file is just a regular Lua table. The name of the needs to be the same as the Lua [operator metamethod](http://lua-users.org/wiki/MetatableEvents) name without the two leading underscores. The supported operators are:
-- unm - unary minus
-- add - addition
-- sub - subtraction
-- mul - multiplication
-- div - division
+Operator overloads are documented similarly to the methods of their parent class. The operator oveload definition file is just a regular Lua table. The name of the operator needs to be the same as the Lua [operator metamethod](http://lua-users.org/wiki/MetatableEvents) name without the two leading underscores. The supported operators are:
+- unm - unary minus.
+- add - addition.
+- sub - subtraction.
+- mul - multiplication.
+- div - division.
 - idiv - floor division (division with rounding down to nearest integer), the `//` operator.
-- mod - the `%` operator
-- pow - the `^` operator
+- mod - the `%` operator.
+- pow - the `^` operator.
 - concat - the `..` operator.
-- len - the `#` operator
+- len - the `#` operator.
+- eq - the `==` operator. Currently, these will only be shown in our documentation, they don't contribute to autocomplete, an issue tracked at: https://github.com/LuaLS/lua-language-server/issues/1882.
 
 The format of operator definition is:
 
@@ -30,7 +31,7 @@ The format of the `overloads` table:
 
 An example of a typical operator definition:
 
-```Lua
+```lua
 -- autocomplete\definitions\namedTypes\tes3matrix33\mul.lua
 return {
 	type = "operator", -- Necessary for operator definitions
@@ -44,12 +45,12 @@ return {
 
 Here is an example of the unary length (`#`) operator definition:
 
-```Lua
+```lua
 -- autocomplete\definitions\namedTypes\tes3vector3\len.lua
 return {
 	type = "operator",
 	overloads = {
-		{ resultType = "number", description = "Evaluates to the vector's length in [game units](https://mwse.github.io/MWSE/references/other/game-units/)." },
+		{ resultType = "number", description = "Evaluates to the vector's length in [game units](https://mwse.github.io/MWSE/references/general/game-units/)." },
 	}
 }
 ```

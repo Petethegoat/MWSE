@@ -24,6 +24,7 @@
 #include "TES3Sound.h"
 #include "TES3Spell.h"
 #include "TES3MagicEffect.h"
+#include "TES3WaterController.h"
 
 #include "NINode.h"
 #include "NISourceTexture.h"
@@ -52,7 +53,7 @@ namespace mwse::lua {
 			usertypeDefinition["globals"] = sol::readonly_property(&TES3::NonDynamicData::globals);
 			usertypeDefinition["isSavingOrLoading"] = sol::readonly_property(&TES3::NonDynamicData::isSavingOrLoading);
 			usertypeDefinition["landTextures"] = sol::readonly_property(&TES3::NonDynamicData::landTextures);
-			usertypeDefinition["lastLoadedFile"] = sol::readonly_property(&TES3::NonDynamicData::unknown_0x08);
+			usertypeDefinition["lastLoadedFile"] = sol::readonly_property(&TES3::NonDynamicData::lastLoadedOrSavedGame);
 			usertypeDefinition["mapTexture"] = &TES3::NonDynamicData::mapTexture;
 			usertypeDefinition["objects"] = sol::readonly_property(&TES3::NonDynamicData::list);
 			usertypeDefinition["races"] = sol::readonly_property(&TES3::NonDynamicData::races);
@@ -73,6 +74,7 @@ namespace mwse::lua {
 			usertypeDefinition["findGlobalVariable"] = &TES3::NonDynamicData::findGlobalVariable;
 			usertypeDefinition["findScript"] = &TES3::NonDynamicData::findScriptByName;
 			usertypeDefinition["findSound"] = &TES3::NonDynamicData::findSound;
+			usertypeDefinition["getGameFile"] = &TES3::NonDynamicData::getGameFile;
 			usertypeDefinition["resolveObject"] = &TES3::NonDynamicData::resolveObject;
 			usertypeDefinition["showLocationOnMap"] = &TES3::NonDynamicData::showLocationOnMap;
 
@@ -112,11 +114,13 @@ namespace mwse::lua {
 			usertypeDefinition["currentInteriorCell"] = sol::readonly_property(&TES3::DataHandler::currentInteriorCell);
 			usertypeDefinition["exteriorCells"] = sol::readonly_property(&TES3::DataHandler::getExteriorCellData_lua);
 			usertypeDefinition["lastExteriorCell"] = sol::readonly_property(&TES3::DataHandler::lastExteriorCell);
+			usertypeDefinition["lowestZInCurrentCell"] = sol::readonly_property(&TES3::DataHandler::getLowestZInCurrentCell);
 			usertypeDefinition["mainThread"] = sol::readonly_property(&TES3::DataHandler::mainThread);
 			usertypeDefinition["mainThreadId"] = sol::readonly_property(&TES3::DataHandler::mainThreadID);
 			usertypeDefinition["nonDynamicData"] = sol::readonly_property(&TES3::DataHandler::nonDynamicData);
 			usertypeDefinition["threadSleepTime"] = sol::readonly_property(&TES3::DataHandler::threadSleepTime);
 			usertypeDefinition["useCellTransitionFader"] = &TES3::DataHandler::useCellTransitionFader;
+			usertypeDefinition["waterController"] = sol::readonly_property(&TES3::DataHandler::waterController);
 			usertypeDefinition["worldLandscapeRoot"] = sol::readonly_property(&TES3::DataHandler::worldLandscapeRoot);
 			usertypeDefinition["worldObjectRoot"] = sol::readonly_property(&TES3::DataHandler::worldObjectRoot);
 			usertypeDefinition["worldPickObjectRoot"] = sol::readonly_property(&TES3::DataHandler::worldPickObjectRoot);

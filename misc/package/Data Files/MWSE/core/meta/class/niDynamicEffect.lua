@@ -6,14 +6,14 @@
 --- @class niDynamicEffect : niAVObject, niObjectNET, niObject
 --- @field affectedNodes niNodeLinkedList The list of nodes that a given dynamic effect will affect.
 --- @field enabled boolean The enabled state of a given dynamic effect.
---- @field type integer *Read-only*. The enumerated type of a given dynamic effect. Maps to values in [`ni.dynamicEffectType`](https://mwse.github.io/MWSE/references/ni/dynamic-effect-types/) table.
+--- @field type ni.dynamicEffectType *Read-only*. The enumerated type of a given dynamic effect. Maps to values in [`ni.dynamicEffectType`](https://mwse.github.io/MWSE/references/ni/dynamic-effect-types/) table.
 niDynamicEffect = {}
 
 --- Adds a node to the dynamic effect's affected nodes list. The node's `:updateEffects()` function should be called afterwards to recognize the change.
---- @param node niBillboardNode|niCollisionSwitch|niNode|niSwitchNode The node to add to the affected nodes list.
+--- @param node niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode The node to add to the affected nodes list.
 function niDynamicEffect:attachAffectedNode(node) end
 
 --- Removes a node from the dynamic effect's affected nodes list. The node's `:updateEffects()` function should be called afterwards to recognize the change.
---- @param node niBillboardNode|niCollisionSwitch|niNode|niSwitchNode The node to remove from the affected nodes list.
+--- @param node niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode The node to remove from the affected nodes list.
 function niDynamicEffect:detachAffectedNode(node) end
 

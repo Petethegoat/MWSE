@@ -38,6 +38,11 @@ namespace TES3 {
 
 		float length() const;
 		bool normalize();
+		float distance(const Vector2*) const;
+		float distanceChebyshev(const Vector2*) const;
+		float distanceManhattan(const Vector2*) const;
+
+
 		Vector2 normalized() const;
 	};
 	static_assert(sizeof(Vector2) == 0x8, "TES3::Vector2 failed size validation");
@@ -60,7 +65,9 @@ namespace TES3 {
 		bool operator==(const Vector3& vector) const;
 		bool operator!=(const Vector3& vector) const;
 		Vector3 operator+(const Vector3&) const;
+		Vector3 operator+(const float) const;
 		Vector3 operator-(const Vector3&) const;
+		Vector3 operator-(const float) const;
 		Vector3 operator-() const;
 		Vector3 operator*(const Vector3&) const;
 		Vector3 operator*(const float) const;
@@ -84,12 +91,25 @@ namespace TES3 {
 		Vector3 lerp(const Vector3& to, float transition) const;
 		float heightDifference(const Vector3*) const;
 		float distance(const Vector3*) const;
+		float distanceChebyshev(const Vector3*) const;
+		float distanceManhattan(const Vector3*) const;
+		float distanceXY(const Vector3*) const;
+
+
+
 		float angle(const Vector3*) const;
 		float length() const;
 		void negate();
 		bool normalize();
 		Vector3 normalized() const;
 		Vector3 interpolate(const Vector3&, const float) const;
+
+		const static Vector3 UNIT_X;
+		const static Vector3 UNIT_NEG_X;
+		const static Vector3 UNIT_Y;
+		const static Vector3 UNIT_NEG_Y;
+		const static Vector3 UNIT_Z;
+		const static Vector3 UNIT_NEG_Z;
 
 	};
 	static_assert(sizeof(Vector3) == 0xC, "TES3::Vector3 failed size validation");
@@ -117,6 +137,10 @@ namespace TES3 {
 
 		Vector4 copy() const;
 
+		float distance(const Vector4*) const;
+		float distanceChebyshev(const Vector4*) const;
+		float distanceManhattan(const Vector4*) const;
+
 		float length() const;
 	};
 	static_assert(sizeof(Vector4) == 0x10, "TES3::Vector4 failed size validation");
@@ -139,7 +163,7 @@ namespace TES3 {
 		Matrix33 operator+(const Matrix33& matrix);
 		Matrix33 operator-(const Matrix33& matrix);
 		Matrix33 operator*(const Matrix33& matrix);
-		Vector3 operator*(const Vector3& vector);
+		Vector3 operator*(const Vector3& vector) const;
 		Matrix33 operator*(float scalar);
 
 		friend std::ostream& operator<<(std::ostream& str, const Matrix33& matrix);
@@ -164,6 +188,7 @@ namespace TES3 {
 		//
 
 		Matrix33 transpose();
+		Vector3 transposeMult(const Vector3& vector) const;
 
 		Matrix33 invert() const;
 		bool invert(Matrix33* out_matrix) const;
@@ -184,6 +209,8 @@ namespace TES3 {
 		Vector3 getForwardVector();
 		Vector3 getRightVector();
 		Vector3 getUpVector();
+
+		void lookAt(const Vector3& direction, const Vector3& worldUp);
 
 		bool reorthogonalize();
 

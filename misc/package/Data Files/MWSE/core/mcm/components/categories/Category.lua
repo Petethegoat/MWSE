@@ -17,72 +17,105 @@
 			}
 ]]--
 
+--- These types have annotations in the core\meta\ folder. Let's stop the warning spam here in the implementation.
+--- The warnings arise because each field set here is also 'set' in the annotations in the core\meta\ folder.
+--- @diagnostic disable: duplicate-set-field
+
+local utils = require("mcm.utils")
 local Parent = require("mcm.components.Component")
+
+--- @class mwseMCMCategory
 local Category = Parent:new()
 Category.componentType = "Category"
 -- Category.childSpacing = 20
 -- Category.childIndent = 40
 -- CONTROL METHODS
 
+--- @param data mwseMCMCategory.new.data|nil
+--- @return mwseMCMCategory
 function Category:new(data)
-	local t = Parent:new(data)
+	--- @diagnostic disable-next-line: param-type-mismatch
+	local t = Parent:new(data) --[[@as mwseMCMCategory]]
 	t.components = t.components or {}
 
 	setmetatable(t, self)
 	t.__index = self.__index
+	--- @cast t mwseMCMCategory
 
+	local parent = t.parentComponent
+	if not parent then return t end
+
+	if t.showDefaultSetting == nil then
+		-- Using `rawget` so we don't inherit a default value
+		t.showDefaultSetting = rawget(parent, "showDefaultSetting")
+	end
+
+	local configKey = t.configKey
+	if not t.config and parent.config then
+		t.config = parent.config[configKey] or parent.config
+	end
+
+	if not t.defaultConfig and parent.defaultConfig then
+		t.defaultConfig = parent.defaultConfig[configKey] or parent.defaultConfig
+	end
 	return t
+end
+
+
+function Category:resetToDefault()
+	for _, component in ipairs(self.components) do
+		component:resetToDefault()
+	end
 end
 
 function Category:disable()
 	Parent.disable(self)
 	for _, element in ipairs(self.elements.subcomponentsContainer.children) do
 		if element.color then
-			element.color = tes3ui.getPalette("disabled_color")
+			element.color = tes3ui.getPalette(tes3.palette.disabledColor)
 		end
 	end
 end
 
 function Category:enable()
 	if self.elements.label then
-		self.elements.label.color = tes3ui.getPalette("header_color")
+		self.elements.label.color = tes3ui.getPalette(tes3.palette.headerColor)
 	end
 end
 
 function Category:update()
 	for _, component in ipairs(self.components) do
 		if component.update then
-			component.update()
+			component:update()
 		end
 	end
 end
 
 function Category:checkDisabled()
-	-- If has variables and all are inGameOnly, disable Category
-	local isDisabled = true
-	local hasSettings = false
+	-- allow the user to override the behavior
+	if self.inGameOnly then
+		return not tes3.player
+	end
+
+	-- dont disable if there are no subcomponents
+	if table.empty(self.components) then return false end
+
+	-- dont disable if one subcomponent isn't disabled
 	for _, component in ipairs(self.components) do
-		if component.componentType == "Setting" and component.variable then
-			hasSettings = true
-			if component.variable.inGameOnly == false then
-				isDisabled = false
-			end
-		elseif component.componentType == "Category" then
-			local componentDisabled = component:checkDisabled()
-			isDisabled = component:checkDisabled()
-			if componentDisabled then
-				hasSettings = true
-			end
+		if not component:checkDisabled() then
+			return false
 		end
 	end
-	return (hasSettings and not tes3.player and isDisabled)
+	-- disable if there are nested components and they're all disabled
+	return true
 end
 
 -- UI METHODS
 
+--- @param parentBlock tes3uiElement
 function Category:createSubcomponentsContainer(parentBlock)
 	local subcomponentsContainer = parentBlock:createBlock({ id = tes3ui.registerID("Category_ContentsContainer") })
-	subcomponentsContainer.flowDirection = "top_to_bottom"
+	subcomponentsContainer.flowDirection = tes3.flowDirection.topToBottom
 	subcomponentsContainer.widthProportional = parentBlock.widthProportional
 	subcomponentsContainer.heightProportional = parentBlock.heightProportional
 	subcomponentsContainer.autoHeight = parentBlock.autoHeight
@@ -90,57 +123,57 @@ function Category:createSubcomponentsContainer(parentBlock)
 	self.elements.subcomponentsContainer = subcomponentsContainer
 end
 
+--- @param parentBlock tes3uiElement
+--- @param components mwseMCMComponent.new.data[]
 function Category:createSubcomponents(parentBlock, components)
-	if components then
-		for _, component in pairs(components) do
-			component.parentComponent = self
-			local newComponent = self:getComponent(component)
+	for _, component in pairs(components or {}) do
 
-			newComponent:create(parentBlock)
+		-- Make sure it's actually a `Component`.
+		if not component.componentType then
+			local componentClass = utils.getComponentClass(component.class)
+			if not componentClass then
+				error(string.format("Could not intialize component %q", component.label))
+			end
+			component.parentComponent = self
+			componentClass:new(component) -- Modifies in-place, which is why it's okay to use in this loop.
 		end
+
+		--- @cast component +mwseMCMComponent
+		component:create(parentBlock)
 	end
 end
 
+--- @param parentBlock tes3uiElement
 function Category:createContentsContainer(parentBlock)
 	self:createLabel(parentBlock)
 	self:createInnerContainer(parentBlock)
 	self:createSubcomponentsContainer(self.elements.innerContainer)
 	self:createSubcomponents(self.elements.subcomponentsContainer, self.components)
-	parentBlock:getTopLevelParent():updateLayout()
+	parentBlock:getTopLevelMenu():updateLayout()
 end
 
 function Category.__index(tbl, key)
-	local meta = getmetatable(tbl)
-	local prefixLen = string.len("create")
-	if string.sub(key, 1, prefixLen) == "create" then
-		local class = string.sub(key, prefixLen + 1)
-		local component
-		local classPaths = require("mcm.classPaths")
+	-- If the `key` starts with `"create"`, and if there's an `mwse.mcm.create<Component>` method,
+	-- Make a new `Category.create<Component>` method.
+	-- Otherwise, look the value up in the `metatable`.
 
-		for _, path in pairs(classPaths.components) do
-
-			local classPath = (path .. class)
-			local fullPath = lfs.currentdir() .. classPaths.basePath .. classPath .. ".lua"
-			local fileExists = lfs.attributes(fullPath, "mode") == "file"
-
-			if fileExists then
-				component = require(classPath)
-				break
-			end
-		end
-
-		if component then
-			return function(self, data)
-				data = self:prepareData(data)
-				data.class = class
-				component = component:new(data)
-				table.insert(self.components, component)
-				return component
-			end
-		end
+	if not key:startswith("create") or mwse.mcm[key] == nil then
+		return getmetatable(tbl)[key]
 	end
 
-	return meta[key]
+	Category[key] = function(self, data)
+		if not data then
+			data = {}
+		elseif type(data) == "string" then
+			data = { label = data }
+		end
+		data.parentComponent = self
+		local component = mwse.mcm[key](data)
+		table.insert(self.components, component)
+		return component
+	end
+
+	return Category[key]
 end
 
 return Category

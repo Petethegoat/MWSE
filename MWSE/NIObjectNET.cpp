@@ -32,8 +32,8 @@ namespace NI {
 		NI_ObjectNET_setName(this, name);
 	}
 
-	const auto NI_ObjectNET_setFlag = reinterpret_cast<void(__thiscall*)(ObjectNET*, bool, byte)>(0x405960);
-	void ObjectNET::setFlag(bool state, byte index) {
+	const auto NI_ObjectNET_setFlag = reinterpret_cast<void(__thiscall*)(ObjectNET*, bool, unsigned char)>(0x405960);
+	void ObjectNET::setFlag(bool state, unsigned char index) {
 		NI_ObjectNET_setFlag(this, state, index);
 	}
 
@@ -42,7 +42,7 @@ namespace NI {
 		NI_ObjectNET_addExtraData(this, data);
 	}
 
-	const auto NI_ObjectNET_removeExtraData = reinterpret_cast<void(__thiscall*)(ObjectNET*, ExtraData*)>(0x6EA220);
+	const auto NI_ObjectNET_removeExtraData = reinterpret_cast<void(__thiscall*)(ObjectNET*, ExtraData*)>(0x6EA260);
 	void ObjectNET::removeExtraData(ExtraData* data) {
 		NI_ObjectNET_removeExtraData(this, data);
 	}

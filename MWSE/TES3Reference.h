@@ -31,6 +31,7 @@ namespace TES3 {
 			};
 		};
 
+		static constexpr auto OBJECT_TYPE = ObjectType::Reference;
 		constexpr static auto INVALID_ATTACHMENT = reinterpret_cast<Attachment*>(0x3F800000);
 
 		//
@@ -99,6 +100,7 @@ namespace TES3 {
 		void setFacing(float facing);
 
 		float getAngleToReference(Reference* reference);
+		bool isInSameWorldspace(const Reference* other) const;
 
 		Matrix33 getRotationMatrix();
 		Vector3 getForwardDirectionVector();

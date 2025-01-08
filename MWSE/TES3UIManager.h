@@ -56,7 +56,9 @@ namespace TES3::UI {
 	void logToConsole(const char* text, bool isCommand = false);
 	void logToConsole_lua(const char* text, sol::optional<bool> isCommand = false);
 
+	void hideCursor();
 	void closeBookMenu();
+	void closeDialogueMenu();
 	void closeScrollMenu();
 	bool showJournal();
 	bool closeJournal();
@@ -75,7 +77,7 @@ namespace TES3::UI {
 	void updateFatigueFillBar(float current, float max);
 	void updateCurrentMagicFillBar(float current, float max);
 	void updateCurrentMagicFromSpell(const char* iconPath, const char* spellName, Spell* spell);
-	void updateCurrentMagicFromEquipmentStack(EquipmentStack* equipmentStack);
+	void updateCurrentMagicFromEquipmentStack(const char* iconPath, const char* itemName, EquipmentStack* equipmentStack);
 	void updateEncumbranceBar();
 	void updatePlayerAttribute(float current, int attributeId);
 	void updateStatsPane();
@@ -101,11 +103,18 @@ namespace TES3::UI {
 
 	sol::table getPalette_lua(sol::this_state ts, const char* name);
 
+	void showMagicSelectMenu_lua(sol::table params);
 	void showInventorySelectMenu_lua(sol::table params);
 
 	void __cdecl createResponseText(Element* parent, const char* text, int type, int answerIndex = -1);
 	void createResponseText_lua(sol::table params);
 	void choice(const char* text, int index);
+
+	std::tuple<int, int> textLayoutGetFontHeight_lua(sol::table params);
+	void textLayoutGetTextExtent(TES3::Font* font, const char* text, float* out_width, float* out_verticalAdvance, int maxCharsOrLineMode, bool useLineHeight);
+	std::tuple<int, int, int> textLayoutGetTextExtent_lua(sol::table params);
+	int textLayoutWrapTextInPlace(TES3::Font* font, char* textBuffer, unsigned int maxWidth, bool ignoreLinkDelimiters, char newlineReplacement);
+	std::tuple<std::string, int> textLayoutWrapText_lua(sol::table params);
 
 	//
 	// Helper functions.

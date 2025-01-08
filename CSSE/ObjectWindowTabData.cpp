@@ -370,7 +370,7 @@ namespace se::cs::dialog::object_window {
 	int TabColumnActorFactionRank::sortObject(const Object* lParam1, const Object* lParam2, bool sortOrderAsc) const {
 		const auto a = static_cast<const NPC*>(lParam1);
 		const auto b = static_cast<const NPC*>(lParam2);
-		return sort(a->getFactionRankName(), b->getFactionRankName(), sortOrderAsc);
+		return sort(a->factionRank, b->factionRank, sortOrderAsc);
 	}
 
 	TabColumn::ColumnSettings& TabColumnActorFactionRank::getSettings() const {
@@ -449,18 +449,22 @@ namespace se::cs::dialog::object_window {
 	}
 
 	bool TabColumnActorRespawns::supportsObjectType(ObjectType::ObjectType objectType) const {
-		return objectType == ObjectType::Container;
+		switch (objectType) {
+		case ObjectType::Creature:
+		case ObjectType::NPC:
+		case ObjectType::Container:
+			return true;
+		}
+		return false;
 	}
 
 	void TabColumnActorRespawns::getDisplayInfo(LPNMLVDISPINFOA displayInfo) const {
-		const auto object = static_cast<const Container*>(getObjectFromDisplayInfo(displayInfo));
+		const auto object = getObjectFromDisplayInfo(displayInfo);
 		display(displayInfo, object->getRespawns());
 	}
 
 	int TabColumnActorRespawns::sortObject(const Object* lParam1, const Object* lParam2, bool sortOrderAsc) const {
-		const auto a = static_cast<const Container*>(lParam1);
-		const auto b = static_cast<const Container*>(lParam2);
-		return sort(a->getRespawns(), b->getRespawns(), sortOrderAsc);
+		return sort(lParam1->getRespawns(), lParam2->getRespawns(), sortOrderAsc);
 	}
 
 	TabColumn::ColumnSettings& TabColumnActorRespawns::getSettings() const {
@@ -611,6 +615,50 @@ namespace se::cs::dialog::object_window {
 	}
 
 	//
+	// Column: Chance None
+	//
+
+	TabColumnChanceNone::TabColumnChanceNone() : TabColumn("Chance for Nothing", LVCFMT_CENTER) {
+
+	}
+
+	bool TabColumnChanceNone::supportsObjectType(ObjectType::ObjectType objectType) const {
+		switch (objectType) {
+		case ObjectType::LeveledCreature:
+		case ObjectType::LeveledItem:
+			return true;
+		}
+		return false;
+	}
+
+	void TabColumnChanceNone::getDisplayInfo(LPNMLVDISPINFOA displayInfo) const {
+		auto object = getObjectFromDisplayInfo(displayInfo);
+		switch (object->objectType) {
+		case ObjectType::LeveledCreature:
+			display(displayInfo, static_cast<const LeveledCreature*>(object)->chanceForNone);
+			break;
+		case ObjectType::LeveledItem:
+			display(displayInfo, static_cast<const LeveledItem*>(object)->chanceForNone);
+			break;
+		}
+	}
+
+	int TabColumnChanceNone::sortObject(const Object* lParam1, const Object* lParam2, bool sortOrderAsc) const {
+		int chanceNone = 0;
+		switch (lParam1->objectType) {
+		case ObjectType::LeveledCreature:
+			return sort(static_cast<const LeveledCreature*>(lParam1)->chanceForNone, static_cast<const LeveledCreature*>(lParam2)->chanceForNone, sortOrderAsc);
+		case ObjectType::LeveledItem:
+			return sort(static_cast<const LeveledItem*>(lParam1)->chanceForNone, static_cast<const LeveledItem*>(lParam2)->chanceForNone, sortOrderAsc);
+		}
+		return 0;
+	}
+
+	TabColumn::ColumnSettings& TabColumnChanceNone::getSettings() const {
+		return settings.object_window.column_chance_for_none;
+	}
+
+	//
 	// Column: Creature Is Bipedal
 	//
 
@@ -662,6 +710,33 @@ namespace se::cs::dialog::object_window {
 
 	TabColumn::ColumnSettings& TabColumnCreatureMovementType::getSettings() const {
 		return settings.object_window.column_creature_movement_type;
+	}
+
+	//
+	// Column: Creature Soul Value
+	//
+
+	TabColumnCreatureSoulValue::TabColumnCreatureSoulValue() : TabColumn("Soul", LVCFMT_CENTER) {
+
+	}
+
+	bool TabColumnCreatureSoulValue::supportsObjectType(ObjectType::ObjectType objectType) const {
+		return objectType == ObjectType::Creature;
+	}
+
+	void TabColumnCreatureSoulValue::getDisplayInfo(LPNMLVDISPINFOA displayInfo) const {
+		auto object = static_cast<const Creature*>(getObjectFromDisplayInfo(displayInfo));
+		display(displayInfo, object->soul);
+	}
+
+	int TabColumnCreatureSoulValue::sortObject(const Object* lParam1, const Object* lParam2, bool sortOrderAsc) const {
+		const auto a = static_cast<const Creature*>(lParam1)->soul;
+		const auto b = static_cast<const Creature*>(lParam2)->soul;
+		return sort(a, b, sortOrderAsc);
+	}
+
+	TabColumn::ColumnSettings& TabColumnCreatureSoulValue::getSettings() const {
+		return settings.object_window.column_creature_soul;
 	}
 
 	//
@@ -1687,6 +1762,63 @@ namespace se::cs::dialog::object_window {
 	}
 
 	//
+	// Column: Spell Range
+	//
+
+	const char* GetSpellRange(const Spell* spell) {
+		auto range = spell->effects[0].rangeType;
+		for (auto i = 1u; i < 8; ++i) {
+			const auto& effect = spell->effects[i];
+			if (effect.effectID == -1) {
+				break;
+			}
+
+			if (effect.rangeType != range) {
+				range = Effect::Range::Invalid;
+				break;
+			}
+		}
+
+		switch (range) {
+		case Effect::Range::Self:
+			return "Self";
+		case Effect::Range::Touch:
+			return "Touch";
+		case Effect::Range::Target:
+			return "Target";
+		default:
+			return "Mixed";
+		}
+	}
+
+	TabColumnSpellRange::TabColumnSpellRange() : TabColumn("Range", LVCFMT_CENTER) {
+
+	}
+
+	bool TabColumnSpellRange::supportsObjectType(ObjectType::ObjectType objectType) const {
+		switch (objectType) {
+		case ObjectType::Spell:
+			return true;
+		}
+		return false;
+	}
+
+	void TabColumnSpellRange::getDisplayInfo(LPNMLVDISPINFOA displayInfo) const {
+		const auto object = getObjectFromDisplayInfo(displayInfo);
+		display(displayInfo, GetSpellRange(static_cast<const Spell*>(object)));
+	}
+
+	int TabColumnSpellRange::sortObject(const Object* lParam1, const Object* lParam2, bool sortOrderAsc) const {
+		const auto a = static_cast<const Spell*>(lParam1);
+		const auto b = static_cast<const Spell*>(lParam2);
+		return sort(GetSpellRange(a), GetSpellRange(b), sortOrderAsc);
+	}
+
+	TabColumn::ColumnSettings& TabColumnSpellRange::getSettings() const {
+		return settings.object_window.column_spell_range;
+	}
+
+	//
 	// Column: Type
 	//
 
@@ -2167,11 +2299,13 @@ namespace se::cs::dialog::object_window {
 	TabColumnBlocked TabController::tabColumnBlocked;
 	TabColumnBookIsScroll TabController::tabColumnBookIsScroll;
 	TabColumnBookTeaches TabController::tabColumnBookTeaches;
+	TabColumnChanceNone TabController::tabColumnChanceNone;
 	TabColumnCost TabController::tabColumnCost;
 	TabColumnCount TabController::tabColumnCount;
 	TabColumnCreatureIsBipedal TabController::tabColumnCreatureIsBipedal;
 	TabColumnCreatureList TabController::tabColumnCreatureList;
 	TabColumnCreatureMovementType TabController::tabColumnCreatureMovementType;
+	TabColumnCreatureSoulValue TabController::tabColumnCreatureSoul;
 	TabColumnCreatureSound TabController::tabColumnCreatureSound;
 	TabColumnCreatureUsesWeaponAndShield TabController::tabColumnCreatureUsesWeaponAndShield;
 	TabColumnEffect TabController::tabColumnEffect1(0);
@@ -2201,6 +2335,7 @@ namespace se::cs::dialog::object_window {
 	TabColumnRace TabController::tabColumnRace;
 	TabColumnScript TabController::tabColumnScript;
 	TabColumnSound TabController::tabColumnSound;
+	TabColumnSpellRange TabController::tabColumnSpellRange;
 	TabColumnType TabController::tabColumnType;
 	TabColumnUses TabController::tabColumnUses;
 	TabColumnValue TabController::tabColumnValue;
@@ -2428,17 +2563,20 @@ namespace se::cs::dialog::object_window {
 			tabColumnCreatureMovementType.addToController(this, hWnd);
 			tabColumnCreatureUsesWeaponAndShield.addToController(this, hWnd);
 			tabColumnCreatureIsBipedal.addToController(this, hWnd);
+			tabColumnCreatureSoul.addToController(this, hWnd);
 			tabColumnModel.addToController(this, hWnd);
 			tabColumnPersists.addToController(this, hWnd);
 			break;
 		case ObjectType::LeveledCreature:
 			tabColumnAllLTEPC.addToController(this, hWnd);
+			tabColumnChanceNone.addToController(this, hWnd);
 			tabColumnCreatureList.addToController(this, hWnd);
 			break;
 		case ObjectType::Spell:
 			tabColumnName.addToController(this, hWnd);
 			tabColumnType.addToController(this, hWnd);
 			tabColumnCost.addToController(this, hWnd);
+			tabColumnSpellRange.addToController(this, hWnd);
 			tabColumnAutoCalc.addToController(this, hWnd);
 			tabColumnPCStart.addToController(this, hWnd);
 			break;
@@ -2460,6 +2598,7 @@ namespace se::cs::dialog::object_window {
 			break;
 		case ObjectType::LeveledItem:
 			tabColumnAllLTEPC.addToController(this, hWnd);
+			tabColumnChanceNone.addToController(this, hWnd);
 			tabColumnLeveledItemList.addToController(this, hWnd);
 			break;
 		}

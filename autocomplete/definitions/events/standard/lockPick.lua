@@ -1,6 +1,7 @@
 return {
 	type = "event",
 	description = "This event fires when a lock is being picked.",
+	related = { "trapDisarm" },
 	eventData = {
 		["reference"] = {
 			type = "tes3reference",
@@ -29,8 +30,7 @@ return {
 		},
 		["chance"] = {
 			type = "number",
-			readOnly = true,
-			description = "The chance the lockpick will be successful.",
+			description = "The chance the lockpick attempt will be successful. May be modified. If set to a value `<= 0`, the attempt will fail and the \"Lock too complex\" message will be displayed.",
 		},
 		["lockPresent"] = {
 			type = "boolean",

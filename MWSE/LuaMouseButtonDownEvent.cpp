@@ -15,9 +15,11 @@ namespace mwse::lua::event {
 		auto eventData = state.create_table();
 
 		eventData["button"] = m_KeyCode;
+		eventData["isControlDown"] = m_ControlDown;
+		eventData["isShiftDown"] = m_ShiftDown;
+		eventData["isAltDown"] = m_AltDown;
+		eventData["isSuperDown"] = m_SuperDown;
 
 		return eventData;
 	}
-
-	bool MouseButtonDownEvent::m_EventEnabled = false;
 }

@@ -27,6 +27,9 @@ namespace TES3 {
 			OffersEnchanting = 0x10000,
 			OffersRepairs = 0x20000
 		};
+
+		constexpr auto OffersBarteringMask = BartersWeapons | BartersArmor | BartersClothing | BartersBooks | BartersIngredients | BartersLockpicks | BartersProbes | BartersLights | BartersApparatus | BartersRepairTools | BartersMiscItems | BartersAlchemy;
+		static_assert(OffersBarteringMask == 0x27FF, "Bartering mask does not match game code. Was a new bartering type added?");
 	}
 
 	struct Class : BaseObject {
@@ -39,6 +42,8 @@ namespace TES3 {
 		unsigned int services; // 0x88
 		char * description; // 0x8C
 		unsigned int descriptionOffset; // 0x90
+
+		static constexpr auto OBJECT_TYPE = ObjectType::Class;
 
 		Class() = delete;
 		~Class() = delete;
@@ -98,6 +103,7 @@ namespace TES3 {
 		void setBartersRepairTools(bool value);
 		bool getBartersWeapons() const;
 		void setBartersWeapons(bool value);
+		bool getOffersBartering() const;
 		bool getOffersEnchanting() const;
 		void setOffersEnchanting(bool value);
 		bool getOffersRepairs() const;

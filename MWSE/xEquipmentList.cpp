@@ -19,7 +19,7 @@ namespace mwse {
 
 	private:
 		bool nodeMatchesFilter(TES3::IteratedList<TES3::EquipmentStack*>::Node* node, long typeFilter, long subtypeFilter);
-		long getItemSubType(TES3::BaseObject* object);
+		long getItemSubType(TES3::Object* object);
 	};
 
 	static xEquipmentList xEquipmentListInstance;
@@ -81,14 +81,14 @@ namespace mwse {
 		}
 
 		// Results.
-		char* id = NULL;
+		const char* id = NULL;
 		long count = 0;
 		long type = 0;
 		long subtype = -1;
 		long value = 0;
 		float weight = 0;
-		char* name = NULL;
-		char* enchantId = NULL;
+		const char* name = NULL;
+		const char* enchantId = NULL;
 		TES3::IteratedList<TES3::EquipmentStack*>::Node* next = NULL;
 
 		// If we aren't given a node, get the first one.
@@ -103,7 +103,7 @@ namespace mwse {
 
 		// Validate the node we've obtained.
 		if (node && node->data) {
-			TES3::BaseObject* object = node->data->object;
+			TES3::Object* object = node->data->object;
 
 			id = reinterpret_cast<TES3::PhysicalObject*>(object)->objectID;
 			type = object->objectType;
@@ -151,7 +151,7 @@ namespace mwse {
 	}
 
 	bool xEquipmentList::nodeMatchesFilter(TES3::IteratedList<TES3::EquipmentStack*>::Node* node, long typeFilter, long subtypeFilter) {
-		TES3::BaseObject* object = node->data->object;
+		TES3::Object* object = node->data->object;
 
 		if (typeFilter != 0 && object->objectType != typeFilter) {
 			return false;
@@ -164,7 +164,7 @@ namespace mwse {
 		return true;
 	}
 
-	long xEquipmentList::getItemSubType(TES3::BaseObject* object) {
+	long xEquipmentList::getItemSubType(TES3::Object* object) {
 		if (object == NULL) {
 			return -2;
 		}

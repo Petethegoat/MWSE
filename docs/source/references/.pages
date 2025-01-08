@@ -1,0 +1,8 @@
+nav:
+  - general
+  - Global tables:
+    - tes3:
+      - ...
+    - mge
+    - ni
+  - mwse-mwscript

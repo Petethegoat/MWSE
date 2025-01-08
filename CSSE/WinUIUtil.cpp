@@ -110,6 +110,11 @@ namespace se::cs::winui {
 		return MoveWindow(hWnd, x, y, GetRectWidth(windowRect), GetRectHeight(windowRect), repaint ? TRUE : FALSE);
 	}
 
+	void SetDialogFocus(HWND hWnd, int controlId) {
+		const auto hDlgControl = GetDlgItem(hWnd, controlId);
+		SendMessageA(hWnd, WM_NEXTDLGCTL, (WPARAM)hDlgControl, TRUE);
+	}
+
 	LONG GetStyle(HWND hWnd) {
 		return GetWindowLongA(hWnd, GWL_STYLE);
 	}
@@ -128,18 +133,71 @@ namespace se::cs::winui {
 
 	std::string GetWindowTextA(HWND hWnd) {
 		std::string text;
-		text.resize(GetWindowTextLengthA(hWnd));
+		
+		// We need to account for one extra character, a null-terminator that we'll have to manually remove.
+		text.resize(GetWindowTextLengthA(hWnd) + 1);
+
 		GetWindowTextA(hWnd, text.data(), text.capacity());
+
+		// GetWindowTextA will cause a null terminator character to be appended to the string, which we need to pop off.
+		text.pop_back();
+
 		return std::move(text);
+	}
+
+	std::optional<int> GetDlgItemSignedInt(HWND hWnd, UINT nIDDlgItem) {
+		BOOL successful;
+		auto result = GetDlgItemInt(hWnd, nIDDlgItem, &successful, TRUE);
+		if (!successful) {
+			return {};
+		}
+
+		return (int)result;
+	}
+
+	std::optional<unsigned int> GetDlgItemUnsignedInt(HWND hWnd, UINT nIDDlgItem) {
+		BOOL successful;
+		auto result = GetDlgItemInt(hWnd, nIDDlgItem, &successful, FALSE);
+		if (!successful) {
+			return {};
+		}
+
+		return result;
+	}
+
+	BOOL GetOpenFileNameWithoutDirChangeA(LPOPENFILENAMEA param) {
+		// Cache current directory because GetOpenFileName changes it for some absurd reason.
+		// OFN_NOCHANGEDIR doesn't seem to act reliably in this situation.
+		const auto currentDir = std::filesystem::current_path();
+
+		auto result = GetOpenFileNameA(param);
+
+		// Restore directory.
+		std::filesystem::current_path(currentDir);
+
+		return result;
 	}
 
 	//
 	// ComboBox
 	//
 
+	bool ComboBox_HasStringExact(HWND hWnd, const char* string) {
+		return ComboBox_FindStringExact(hWnd, -1, string) != CB_ERR;
+	}
+
 	void ComboBox_SetCurSelEx(HWND hWnd, int index) {
 		ComboBox_SetCurSel(hWnd, index);
 		SendMessageA(GetAncestor(hWnd, GA_PARENT), WM_COMMAND, MAKEWPARAM(GetWindowLongPtr(hWnd, GWLP_ID), CBN_SELCHANGE), (LPARAM)hWnd);
+	}
+
+	int ComboBox_SelectStringExact(HWND hWnd, const char* string) {
+		const auto index = ComboBox_FindStringExact(hWnd, 0, string);
+		if (index == CB_ERR) {
+			return CB_ERR;
+		}
+
+		return ComboBox_SetCurSel(hWnd, index);
 	}
 
 	//
@@ -232,5 +290,27 @@ namespace se::cs::winui {
 			nmhdr.code = TCN_SELCHANGE;
 			SendMessageA(hParent, WM_NOTIFY, (WPARAM)hWnd, (LPARAM)&nmhdr);
 		}
+	}
+
+	//
+	// Toolbar
+	//
+
+	void Toolbar_AddSeparator(HWND hWndToolbar, int iWidth) {
+		TBBUTTON button = {};
+		button.iBitmap = iWidth;
+		button.idCommand = 0x0FFFFFFFF;
+		button.fsState = TBSTATE_ENABLED;
+		button.fsStyle = BTNS_SEP;
+		SendMessageA(hWndToolbar, TB_ADDBUTTONS, 1, (LPARAM)&button);
+	}
+
+	void Toolbar_AddButton(HWND hWndToolbar, int idCommand, int iBitmap) {
+		TBBUTTON button = {};
+		button.iBitmap = iBitmap;
+		button.idCommand = idCommand;
+		button.fsState = TBSTATE_ENABLED;
+		button.fsStyle = BTNS_BUTTON;
+		SendMessageA(hWndToolbar, TB_ADDBUTTONS, 1, (LPARAM)&button);
 	}
 }

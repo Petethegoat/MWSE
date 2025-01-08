@@ -13,23 +13,36 @@
 #include "NIMatrix33.h"
 #include "NINode.h"
 #include "NIPick.h"
+#include "NILines.h"
 
 #include "CSCell.h"
 #include "CSDataHandler.h"
+#include "CSDoor.h"
 #include "CSGameFile.h"
 #include "CSLandTexture.h"
 #include "CSRecordHandler.h"
 #include "CSReference.h"
 #include "CSStatic.h"
 
-#include "Settings.h"
 #include "RenderWindowSceneGraphController.h"
 #include "RenderWindowSelectionData.h"
 #include "RenderWindowWidgets.h"
+#include "Settings.h"
+
+#include "DialogLandscapeEditSettingsWindow.h"
+#include "WindowMain.h"
+
+#include "DialogProcContext.h"
 
 namespace se::cs::dialog::render_window {
-	static WORD lastRenderWindowPosX = 0;
-	static WORD lastRenderWindowPosY = 0;
+	__int16 lastCursorPosX = 0;
+	__int16 lastCursorPosY = 0;
+
+	std::default_random_engine generator;
+	std::uniform_real_distribution<float> rotationDistribution(0.0, 360.0);
+	std::uniform_real_distribution<float> scaleDistribution(0.5, 2.0);
+
+	using gRenderWindowHandle = memory::ExternalGlobal<HWND, 0x6CE93C>;
 
 	using gObjectMove = memory::ExternalGlobal<float, 0x6CE9B4>;
 	using gObjectRotate = memory::ExternalGlobal<float, 0x6CE9B0>;
@@ -41,18 +54,55 @@ namespace se::cs::dialog::render_window {
 	using gSnapGrid = memory::ExternalGlobal<int, 0x6CE9A8>;
 	using gSnapAngleInDegrees = memory::ExternalGlobal<int, 0x6CE9AC>;
 	using gCumulativeRotationValues = memory::ExternalGlobal<NI::Vector3, 0x6CF760>;
+	using gPreviousCumulativeRotationValues = memory::ExternalGlobal<NI::Vector3, 0x6CF4A8>;
 
 	using gRenderWindowPick = memory::ExternalGlobal<NI::Pick, 0x6CF528>;
 
-	using gCurrentCell = memory::ExternalGlobal<Cell*, 0x6CF7B8>;
-
+	using gIsTranslating = memory::ExternalGlobal<bool, 0x6CF782>;
+	using gIsRotating = memory::ExternalGlobal<bool, 0x6CF783>;
 	using gIsHoldingV = memory::ExternalGlobal<bool, 0x6CF789>;
 	using gIsHoldingX = memory::ExternalGlobal<bool, 0x6CF786>;
 	using gIsHoldingY = memory::ExternalGlobal<bool, 0x6CF787>;
 	using gIsHoldingZ = memory::ExternalGlobal<bool, 0x6CF788>;
 	using gIsScaling = memory::ExternalGlobal<bool, 0x6CF785>;
+	using gIsPanning = memory::ExternalGlobal<bool, 0x6CF78A>;
 
-	using gRenderNextFrame = memory::ExternalGlobal<bool, 0x6CF78D>;
+	void renderNextFrame() {
+		using gRenderNextFrame = memory::ExternalGlobal<bool, 0x6CF78D>;
+		gRenderNextFrame::set(true);
+	}
+
+	using gLandscapeEditDisc = memory::ExternalGlobal<NI::Lines*, 0x6CF4B4>;
+
+	void updateLandscapeCircleWidget() {
+		const auto widget = gLandscapeEditDisc::get();
+		if (!widget) {
+			return;
+		}
+
+		const auto vertexColorProp = widget->getVertexColorProperty();
+		if (!vertexColorProp) {
+			return;
+		}
+
+		NI::PackedColor color = settings.landscape_window.edit_circle_vertex;
+		if (landscape_edit_settings_window::getFlattenLandscapeVertices()) {
+			color = settings.landscape_window.edit_circle_flatten_vertex;
+		}
+		else if (landscape_edit_settings_window::getSoftenLandscapeVertices()) {
+			color = settings.landscape_window.edit_circle_soften_vertex;
+		}
+		else if (landscape_edit_settings_window::getEditLandscapeColor()) {
+			color = settings.landscape_window.edit_circle_color_vertex;
+		}
+
+		const auto modelData = widget->getModelData();
+		for (auto i = 0u; i < modelData->getActiveVertexCount(); ++i) {
+			modelData->color[i] = color;
+		}
+
+		renderNextFrame();
+	}
 
 	namespace RenderControlFlags {
 		enum RenderControlFlags : DWORD {
@@ -65,6 +115,8 @@ namespace se::cs::dialog::render_window {
 	using gRenderControlFlags = memory::ExternalGlobal<DWORD, 0x6CE9A4>;
 	using gAutoSaveTime = memory::ExternalGlobal<int, 0x6CEA38>;
 
+	const auto resetCumulativeRotationValues = reinterpret_cast<void(__stdcall*)()>(0x466470);
+
 	// Convenience function to see if X, Y, or Z are held down.
 	bool isHoldingAxisKey() {
 		return gIsHoldingX::get() || gIsHoldingY::get() || gIsHoldingZ::get();
@@ -76,6 +128,10 @@ namespace se::cs::dialog::render_window {
 
 	bool isAngleSnapping() {
 		return gRenderControlFlags::get() & RenderControlFlags::SnapToAngle;
+	}
+
+	bool isModifyingObject() {
+		return gIsTranslating::get() || gIsRotating::get() || gIsScaling::get();
 	}
 
 	struct NetImmerseInstance {
@@ -138,6 +194,147 @@ namespace se::cs::dialog::render_window {
 	static_assert(sizeof(NetImmerseInstance) == 0x64, "CS::NetImmerseInstance failed size validation");
 	static_assert(sizeof(NetImmerseInstance::VirtualTable) == 0x64, "CS::NetImmerseInstance's virtual table failed size validation");
 
+
+	//
+	// Patch: Improve camera controls.
+	//
+
+	enum class CameraChangeType : unsigned int {
+		PanX,
+		PanY,
+		PanZ,
+		SetPositionX,
+		SetPositionY,
+		SetPositionZ,
+		Unknown6,
+		Unknown7,
+		Unknown8,
+		Unknown9,
+		Unknown10,
+		Unknown11,
+	};
+
+	float getHoveredSurfaceDistance() {
+		auto camera = RenderController::get()->camera;
+
+		NI::Vector3 origin;
+		NI::Vector3 direction;
+		if (!camera->windowPointToRay(lastCursorPosX, lastCursorPosY, origin, direction)) {
+			return 0.0;
+		}
+
+		NI::Vector3 intersection;
+		float zDistObject = 0.0f;
+		float zDistLandscape = 0.0f;
+
+		auto objectPick = SceneGraphController::get()->objectPick;
+		if (objectPick->pickObjectsWithSkinDeforms(&origin, &direction)) {
+			intersection = objectPick->results[0]->intersection;
+			zDistObject = (intersection - origin).dotProduct(&camera->worldDirection);
+		}
+
+		auto landscapePick = SceneGraphController::get()->landscapePick;
+		if (landscapePick->pickObjects(&origin, &direction)) {
+			intersection = landscapePick->results[0]->intersection;
+			zDistLandscape = (intersection - origin).dotProduct(&camera->worldDirection);
+		}
+		
+		if (zDistObject == 0.0f && zDistLandscape == 0.0f) {
+			return 0.0;
+		}
+
+		if (zDistObject != 0.0f && zDistLandscape != 0.0f) {
+			return std::fmin(zDistObject, zDistLandscape);
+		}
+		else {
+			return std::fmax(zDistObject, zDistLandscape);
+		}
+	}
+
+	struct CameraPanContext {
+		POINT initialCursorPosition;
+		NI::Vector3 initialPosition;
+		NI::Vector3 panDDX;
+		NI::Vector3 panDDY;
+
+		bool setup() {
+			auto camera = RenderController::get()->camera;
+
+			// Store the initial cursor/camera position when entering panning mode.
+			if (!GetCursorPos(&initialCursorPosition)) {
+				return false;
+			}
+			initialPosition = camera->worldTransform.translation;
+
+			// Get distance of the surface currently under the cursor.
+			// Be sure to use a safe fallback value if nothing is under the cursor.
+			float zDist = getHoveredSurfaceDistance();
+			zDist = (zDist != 0.0f) ? zDist : 2048.0f;
+
+			// Do some forward differencing to get the changes relative to mouse coord changes.
+			panDDX = camera->worldRight * (2.0f * zDist * camera->viewFrustum.right / camera->renderer->getBackBufferWidth());
+			panDDY = camera->worldUp * (-2.0f * zDist * camera->viewFrustum.top / camera->renderer->getBackBufferHeight());
+
+			return true;
+		}
+	};
+	static auto cameraPanContext = CameraPanContext();
+
+	void __stdcall Patch_ImproveCameraControls_EnterPanningMode() {
+		if (gIsPanning::get() == true) {
+			return;
+		}
+		
+		bool useLegacyCamera = settings.render_window.use_legacy_camera;
+		if (!useLegacyCamera) {
+			auto success = cameraPanContext.setup();
+			if (!success) {
+				return;
+			}
+		}
+
+		gIsPanning::set(true);
+	}
+
+	constexpr DWORD Patch_ImproveCameraControls_EnterPanningMode_Wrapper_ReturnAddress = 0x45E32A;
+	__declspec(naked) void Patch_ImproveCameraControls_EnterPanningMode_Wrapper() {
+		__asm {
+			pushad
+			call Patch_ImproveCameraControls_EnterPanningMode
+			popad
+			jmp Patch_ImproveCameraControls_EnterPanningMode_Wrapper_ReturnAddress
+		}
+	}
+
+	bool __cdecl Patch_ImproveCameraControls(NI::Node* cameraNode, CameraChangeType changeType, float changeValue) {
+		bool useLegacyCamera = settings.render_window.use_legacy_camera;
+		if (!useLegacyCamera) {
+			if (changeType == CameraChangeType::PanX || changeType == CameraChangeType::PanZ) {
+				auto& context = cameraPanContext;
+
+				POINT cursorPos = {};
+				if (!GetCursorPos(&cursorPos)) {
+					return false;
+				}
+
+				// Calculate the vector from initial mouse position to current.
+				NI::Vector3 difference = (
+					context.panDDX * (cursorPos.x - context.initialCursorPosition.x) +
+					context.panDDY * (cursorPos.y - context.initialCursorPosition.y)
+				);
+
+				// Apply camera movement.
+				cameraNode->localTranslate = context.initialPosition - difference;
+
+				return true;
+			}
+		}
+
+		// Fall back to original logic.
+		const auto CS_HandleCameraChange = reinterpret_cast<bool(__cdecl*)(NI::Node*, CameraChangeType, float)>(0x469C50);
+		return CS_HandleCameraChange(cameraNode, changeType, changeValue);
+	}
+
 	//
 	// Patch: Use world rotation values unless ALT is held.
 	//
@@ -145,6 +342,7 @@ namespace se::cs::dialog::render_window {
 	const auto TES3_CS_OriginalRotationLogic = reinterpret_cast<bool(__cdecl*)(void*, SelectionData::Target*, int, SelectionData::RotationAxis)>(0x4652D0);
 	bool __cdecl Patch_ReplaceRotationLogic(void* unknown1, SelectionData::Target* firstTarget, int relativeMouseDelta, SelectionData::RotationAxis rotationAxis) {
 		using windows::isKeyDown;
+		using windows::isControlDown;
 
 		// Allow holding ALT modifier to do vanilla behavior.
 		bool useWorldAxisRotation = settings.render_window.use_world_axis_rotations_by_default;
@@ -166,7 +364,7 @@ namespace se::cs::dialog::render_window {
 			rotationAxis = SelectionData::RotationAxis::Z;
 		}
 
-		auto widgets = SceneGraphController::get()->widgets;
+		auto widgets = SceneGraphController::get()->getWidgets();
 		if (isHoldingAxisKey()) {
 			widgets->setPosition(selectionData->bound.center);
 			widgets->show();
@@ -190,7 +388,7 @@ namespace se::cs::dialog::render_window {
 		}
 
 		const auto snapAngle = math::degreesToRadians((float)gSnapAngleInDegrees::get());
-		const bool isSnapping = (isAngleSnapping() || isKeyDown(VK_LCONTROL)) && (snapAngle != 0.0f);
+		const bool isSnapping = (isControlDown() || isAngleSnapping()) && (snapAngle != 0.0f);
 
 		NI::Vector3 orientation = cumulativeRot;
 		if (isSnapping) {
@@ -283,7 +481,11 @@ namespace se::cs::dialog::render_window {
 				reference->position = (userRotation * p) + selectionData->bound.center;
 				reference->unknown_0x10 = reference->position;
 				reference->sceneNode->localTranslate = reference->position;
-				DataHandler::get()->updateLightingForReference(reference);
+
+				// Avoid lighting updates when moving large number of targets.
+				if (selectionData->numberOfTargets <= 20) {
+					DataHandler::get()->updateLightingForReference(reference);
+				}
 			}
 
 			reference->sceneNode->update(0.0f, true, true);
@@ -296,43 +498,58 @@ namespace se::cs::dialog::render_window {
 	// Patch: Improve multi-reference scaling.
 	//
 
-	void __cdecl Patch_ReplaceScalingLogic(RenderController* renderController, SelectionData::Target* firstTarget, int scaler) {
+	static auto selectionNeedsScaleUpdate = false;
+	void __cdecl Patch_ReplaceScalingLogic(RenderController* renderController, SelectionData::Target* firstTarget, int mouseDelta) {
 		using windows::isKeyDown;
 
 		auto selectionData = SelectionData::get();
 		bool useGroupScaling = settings.render_window.use_group_scaling;
 		if (!useGroupScaling || selectionData->numberOfTargets == 1) {
 			const auto VanillaScalingHandler = reinterpret_cast<void(__cdecl*)(RenderController*, SelectionData::Target*, int)>(0x404949);
-			VanillaScalingHandler(renderController, firstTarget, scaler);
+			VanillaScalingHandler(renderController, firstTarget, mouseDelta);
 			return;
 		}
 
 		// Clamp such that no reference will be scaled beyond supported bounds. [0.5, 2.0]
-		auto scaleDelta = scaler * 0.01f;
+		auto delta = mouseDelta * 0.01f;
 		for (auto target = firstTarget; target; target = target->next) {
-			const auto scale = target->reference->getScale();
-			scaleDelta = std::clamp(scaleDelta, 0.5f - scale, 2.0f - scale);
+			const auto scale = target->reference->sceneNode->localScale;
+			delta = std::clamp(delta, 0.5f - scale, 2.0f - scale);
 		}
+		if (fabs(delta) < 0.01) {
+			return;
+		}
+		
+		// Avoid using `setScale` every update, its implementation causes huge precision loss.
+		// Instead set this flag which will trigger `setScale` just once when finished scaling.
+		selectionNeedsScaleUpdate = true;
 
-		// Scale all selected references and their positions relative to the last target.
-		const auto reference = selectionData->getLastTarget()->reference;
-		const auto distance = 1.0f + scaleDelta / reference->getScale();
-		const auto origin = reference->position;
+		// Scale all selected references and their positions relative to last target.
+		const auto center = selectionData->getLastTarget()->reference->position;
+		const auto factor = 1.0f + delta;
 
 		for (auto target = firstTarget; target; target = target->next) {
 			auto reference = target->reference;
-			reference->setScale(reference->getScale() + scaleDelta);
 
-			const auto offset = reference->position - origin;
-			reference->position = origin + (offset * distance);
+			// Update scale.
+			reference->sceneNode->localScale *= factor;
+
+			// Update position.
+			const auto relativePosition = reference->position - center;
+			reference->position = center + (relativePosition * factor);
+
 			reference->unknown_0x10 = reference->position;
 			reference->sceneNode->localTranslate = reference->position;
 			reference->sceneNode->update(0.0f, true, true);
 
-			DataHandler::get()->updateLightingForReference(reference);
+			// Avoid lighting updates when moving large number of targets.
+			if (selectionData->numberOfTargets <= 20) {
+				DataHandler::get()->updateLightingForReference(reference);
+			}
 
 			reference->setAsEdited();
 		}
+
 		selectionData->recalculateBound();
 	}
 
@@ -435,7 +652,7 @@ namespace se::cs::dialog::render_window {
 
 		NI::Vector3 origin;
 		NI::Vector3 direction;
-		if (rendererController->camera->windowPointToRay(lastRenderWindowPosX, lastRenderWindowPosY, origin, direction)) {
+		if (rendererController->camera->windowPointToRay(lastCursorPosX, lastCursorPosY, origin, direction)) {
 			direction.normalize();
 
 			if (rendererPicker->pickObjects(&origin, &direction)) {
@@ -566,6 +783,7 @@ namespace se::cs::dialog::render_window {
 	const auto DefaultDragMovementFunction = reinterpret_cast<int(__cdecl*)(RenderController*, SelectionData::Target*, int, int, bool, bool, bool)>(0x464B70);
 	int __cdecl Patch_ReplaceDragMovementLogic(RenderController* renderController, SelectionData::Target* firstTarget, int dx, int dy, bool lockX, bool lockY, bool lockZ) {
 		using windows::isKeyDown;
+		using windows::isControlDown;
 
 		auto selectionData = SelectionData::get();
 		auto lastTarget = selectionData->getLastTarget();
@@ -578,8 +796,9 @@ namespace se::cs::dialog::render_window {
 			return DefaultDragMovementFunction(renderController, firstTarget, dx, dy, lockX, lockY, lockZ);
 		}
 
-		// When holding alt perform align-to-surface behavior.
-		if (isKeyDown(VK_MENU)) {
+		// When holding alt perform align-to-surface behavior. 
+		// Disallow while control is down (grid snap enabled).
+		if (isKeyDown(VK_MENU) && !isControlDown()) {
 			return Patch_AlignToSurfaceDragMovementLogic(renderController, firstTarget, dx, dy, lockX, lockY, lockZ);
 		}
 
@@ -587,7 +806,7 @@ namespace se::cs::dialog::render_window {
 		NI::Vector3 rayOrigin;
 		NI::Vector3 rayDirection;
 		auto camera = RenderController::get()->camera;
-		if (!camera->windowPointToRay(lastRenderWindowPosX, lastRenderWindowPosY, rayOrigin, rayDirection)) {
+		if (!camera->windowPointToRay(lastCursorPosX, lastCursorPosY, rayOrigin, rayDirection)) {
 			return 0;
 		}
 
@@ -616,7 +835,7 @@ namespace se::cs::dialog::render_window {
 		planeOrigin = planeOrigin + context.cursorOffset;
 
 		// Align the plane to the locked axis if applicable.
-		auto widgets = SceneGraphController::get()->widgets;
+		auto widgets = SceneGraphController::get()->getWidgets();
 		bool isAxisLocked = lockX || lockY || lockZ;
 		if (isAxisLocked) {
 			planeNormal = camera->worldDirection;
@@ -678,8 +897,7 @@ namespace se::cs::dialog::render_window {
 		}
 
 		// Apply grid snap.
-		auto forceSnapping = isKeyDown(VK_LCONTROL);
-		if (isGridSnapping() || forceSnapping) {
+		if (isGridSnapping() || isControlDown()) {
 			auto increment = gSnapGrid::get();
 			if (increment != 0.0f) {
 				// "Unlocked" movement defaults to XY axis.
@@ -700,21 +918,20 @@ namespace se::cs::dialog::render_window {
 			}
 		}
 
-		// We probably don't want to be sending things off into far distant cells.
-		// Can happen unintentionally if camera direction is parallel with movement axis.
-		if (intersection.distance(&planeOrigin) > 8192.0f) {
-			return 0;
-		}
-
 		// Update positions.
 		for (auto target = selectionData->firstTarget; target; target = target->next) {
 			auto reference = target->reference;
 			reference->position = intersection + (reference->position - planeOrigin);
 			reference->unknown_0x10 = reference->position;
-			reference->sceneNode->localTranslate = reference->position;
-			reference->sceneNode->update(0.0f, true, true);
+			if (reference->sceneNode) {
+				reference->sceneNode->localTranslate = reference->position;
+				reference->sceneNode->update(0.0f, true, true);
+			}
 
-			DataHandler::get()->updateLightingForReference(reference);
+			// Avoid lighting updates when moving large number of targets.
+			if (selectionData->numberOfTargets <= 20) {
+				DataHandler::get()->updateLightingForReference(reference);
+			}
 
 			reference->setAsEdited();
 		}
@@ -870,77 +1087,220 @@ namespace se::cs::dialog::render_window {
 	}
 
 	//
+	// Patch: Extend reference status data
+	//
+
+	const auto TES3CS_UpdateStatusMessage = reinterpret_cast<void(__cdecl*)(WPARAM, const char*)>(0x404881);
+
+	void __cdecl Patch_ExtendReferenceStatusData(WPARAM wParam, const char* lParam) {
+		const auto cell = gCurrentCell::get();
+		const auto firstTarget = SelectionData::get()->firstTarget;
+		if (firstTarget == nullptr || cell == nullptr) {
+			TES3CS_UpdateStatusMessage(wParam, lParam);
+			return;
+		}
+
+		const auto reference = firstTarget->reference;
+
+		std::stringstream ss;
+		ss << std::dec << std::fixed << std::setprecision(0)
+			<< reference->position.x << ", " << reference->position.y << ", " << reference->position.z
+			<< " [" << math::radiansToDegrees(reference->orientationNonAttached.x) << ", " << math::radiansToDegrees(reference->orientationNonAttached.y) << ", " << math::radiansToDegrees(reference->orientationNonAttached.z) << "]"
+			<< " " << std::setprecision(2) << reference->getScale()
+			<< " " << cell->getEditorId();
+		
+		TES3CS_UpdateStatusMessage(wParam, ss.str().c_str());
+	}
+
+	//
 	// Patch: Extend Render Window message handling.
 	//
 
-	static std::optional<LRESULT> PatchDialogProc_OverrideResult = {};
+	NI::Texture* getLandscapeTextureUnderCursor() {
+		auto rendererController = RenderController::get();
+		auto sceneGraphController = SceneGraphController::get();
 
-	constexpr auto landscapeEditWindowId = 203;
+		NI::Vector3 origin;
+		NI::Vector3 direction;
+		if (!rendererController->camera->windowPointToRay(lastCursorPosX, lastCursorPosY, origin, direction)) {
+			return nullptr;
+		}
+
+		auto pick = sceneGraphController->landscapePick;
+		if (!pick->pickObjects(&origin, &direction)) {
+			return nullptr;
+		}
+
+		auto firstResult = pick->results.at(0);
+		if (firstResult == nullptr || firstResult->object == nullptr) {
+			return nullptr;
+		}
+
+		auto texturingProperty = firstResult->object->getTexturingProperty();
+		if (texturingProperty == nullptr) {
+			return nullptr;
+		}
+
+		auto baseMap = texturingProperty->getBaseMap();
+		if (baseMap == nullptr) {
+			return nullptr;
+		}
+
+		return baseMap->texture;
+	}
 
 	bool PickLandscapeTexture(HWND hWnd) {
-		auto editorWindow = memory::MemAccess<HWND>::Get(0x6CE95C);
+		using landscape_edit_settings_window::getLandscapeEditingEnabled;
+		using landscape_edit_settings_window::getEditLandscapeColor;
+		using landscape_edit_settings_window::setSelectTexture;
+		using gLandscapeEditWindowHandle = landscape_edit_settings_window::gWindowHandle;
+
+		auto editorWindow = gLandscapeEditWindowHandle::get();
 		if (!editorWindow) {
 			return false;
 		}
 
-		// Make sure that we're not in color mode.
-		if (IsDlgButtonChecked(editorWindow, 1008)) {
+		// Make sure we're in landscape editing mode.
+		if (!getLandscapeEditingEnabled()) {
 			return false;
 		}
 
-		auto& rendererPicker = gRenderWindowPick::get();
-		auto rendererController = RenderController::get();
-		auto sceneGraphController = SceneGraphController::get();
-
-		// Cache picker settings we care about.
-		const auto previousRoot = rendererPicker.root;
-		const auto previousPickType = rendererPicker.pickType;
-
-		// Make changes to the pick that we need to.
-		rendererPicker.root = sceneGraphController->landscapeRoot;
-		rendererPicker.pickType = NI::PickType::FIND_ALL;
-
-		NI::Vector3 origin;
-		NI::Vector3 direction;
-		if (rendererController->camera->windowPointToRay(lastRenderWindowPosX, lastRenderWindowPosY, origin, direction)) {
-			direction.normalize();
-
-			if (rendererPicker.pickObjects(&origin, &direction)) {
-				auto firstResult = rendererPicker.getFirstUnskinnedResult();
-				if (firstResult->object) {
-					auto texturingProperty = firstResult->object->getTexturingProperty();
-					if (texturingProperty) {
-						auto baseMap = texturingProperty->getBaseMap();
-						if (baseMap && baseMap->texture) {
-							LVITEMA queryData = {};
-							queryData.mask = LVIF_PARAM;
-							auto textureList = GetDlgItem(editorWindow, 1492);
-							int textureCount = ListView_GetItemCount(textureList);
-							for (int row = 0; row < textureCount; ++row) {
-								queryData.iItem = row;
-								if (ListView_GetItem(textureList, &queryData)) {
-									auto landTexture = reinterpret_cast<LandTexture*>(queryData.lParam);
-									if (landTexture) {
-										if (landTexture->texture == baseMap->texture) {
-											ListView_SetItemState(textureList, row, LVIS_SELECTED, LVIS_SELECTED);
-											ListView_EnsureVisible(textureList, row, TRUE);
-											break;
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
+		// Make sure we aren't in landscape color edit mode.
+		if (getEditLandscapeColor()) {
+			return false;
 		}
 
-		// Restore pick settings.
-		rendererPicker.clearResults();
-		rendererPicker.root = previousRoot;
-		rendererPicker.pickType = previousPickType;
+		auto texture = getLandscapeTextureUnderCursor();
+		if (!texture) {
+			return false;
+		}
 
-		return true;
+		return setSelectTexture(texture);
+	}
+
+	void alignSelection(bool posX, bool posY, bool posZ, bool rotX, bool rotY, bool rotZ, bool scale) {
+		auto selectionData = SelectionData::get();
+		auto lastTarget = selectionData->getLastTarget();
+		if (!lastTarget) {
+			return;
+		}
+
+		// An undo checkpoint is required before and after the movement or it will crash later on.
+		UndoManager::get()->storeCheckpoint(UndoManager::Action::Moved);
+
+		for (auto target = selectionData->firstTarget; target != lastTarget; target = target->next) {
+			auto reference = target->reference;
+
+			if (posX) {
+				reference->position.x = lastTarget->reference->position.x;
+			}
+			if (posY) {
+				reference->position.y = lastTarget->reference->position.y;
+			}
+			if (posZ) {
+				reference->position.z = lastTarget->reference->position.z;
+			}
+
+			if (rotX) {
+				reference->yetAnotherOrientation.x = lastTarget->reference->yetAnotherOrientation.x;
+			}
+			if (rotY) {
+				reference->yetAnotherOrientation.y = lastTarget->reference->yetAnotherOrientation.y;
+			}
+			if (rotZ) {
+				reference->yetAnotherOrientation.z = lastTarget->reference->yetAnotherOrientation.z;
+			}
+
+			if (scale) {
+				reference->setScale(lastTarget->reference->getScale());
+			}
+
+			// Not sure exactly why these exist...
+
+			reference->unknown_0x10 = reference->position;
+			reference->orientationNonAttached = reference->yetAnotherOrientation;
+		
+			// Update Scene Graph.
+
+			NI::Matrix33 rotation;
+			auto orientation = reference->yetAnotherOrientation;
+			rotation.fromEulerXYZ(orientation.x, orientation.y, orientation.z);
+
+			reference->updateRotationMatrixForRaceAndSex(rotation);
+			reference->sceneNode->setLocalRotationMatrix(&rotation);
+			reference->sceneNode->localTranslate = reference->position; 
+			reference->sceneNode->localScale = reference->getScale();
+			reference->sceneNode->update(0.0f, true, true);
+
+			DataHandler::get()->updateLightingForReference(reference);
+
+			reference->setAsEdited();
+		}
+
+		selectionData->recalculateBound();
+
+		// An undo checkpoint is required before and after the movement or it will crash later on.
+		UndoManager::get()->storeCheckpoint(UndoManager::Action::Moved);
+	}
+
+	void resetOrRandomizeSelection(bool rotX, bool rotY, bool rotZ, bool scale, bool randZ, bool randScale) {
+		auto selectionData = SelectionData::get();
+		unsigned int i = 0;
+
+		// An undo checkpoint is required before and after the movement or it will crash later on.
+		UndoManager::get()->storeCheckpoint(UndoManager::Action::Moved);
+
+		for (auto target = selectionData->firstTarget; i < SelectionData::get()->numberOfTargets; target = target->next, i++) {
+			auto reference = target->reference;
+
+			if (rotX) {
+				reference->yetAnotherOrientation.x = 0.0;
+			}
+			if (rotY) {
+				reference->yetAnotherOrientation.y = 0.0;
+			}
+			if (rotZ) {
+				reference->yetAnotherOrientation.z = 0.0;
+			}
+
+			if (scale) {
+				reference->setScale(1.0);
+			}
+
+			if (randZ) {
+				reference->yetAnotherOrientation.z = rotationDistribution(generator);
+			}
+
+			if (randScale) {
+				reference->setScale(scaleDistribution(generator));
+			}
+
+			// Not sure exactly why these exist...
+
+			reference->unknown_0x10 = reference->position;
+			reference->orientationNonAttached = reference->yetAnotherOrientation;
+
+			// Update Scene Graph.
+
+			NI::Matrix33 rotation;
+			auto orientation = reference->yetAnotherOrientation;
+			rotation.fromEulerXYZ(orientation.x, orientation.y, orientation.z);
+
+			reference->updateRotationMatrixForRaceAndSex(rotation);
+			reference->sceneNode->setLocalRotationMatrix(&rotation);
+			reference->sceneNode->localTranslate = reference->position;
+			reference->sceneNode->localScale = reference->getScale();
+			reference->sceneNode->update(0.0f, true, true);
+
+			DataHandler::get()->updateLightingForReference(reference);
+
+			reference->setAsEdited();
+		}
+
+		selectionData->recalculateBound();
+
+		// An undo checkpoint is required before and after the movement or it will crash later on.
+		UndoManager::get()->storeCheckpoint(UndoManager::Action::Moved);
 	}
 
 	void hideSelectedReferences() {
@@ -1048,13 +1408,101 @@ namespace se::cs::dialog::render_window {
 		settings.save();
 	}
 
-	void showContextAwareActionMenu(HWND hWndRenderWindow) {
+	void setTestingPositionToReference() {
+		auto target = SelectionData::get()->getLastTarget();
+		if (target == nullptr) {
+			return;
+		}
+
+		auto targetRef = target->reference;
+		if (targetRef == nullptr) {
+			return;
+		}
+
+		auto currentCell = gCurrentCell::get();
+		auto& test_environment = settings.test_environment;
+		if (currentCell->getIsInterior()) {
+			test_environment.starting_cell = currentCell->getObjectID();
+			test_environment.starting_grid = { 0, 0 };
+		}
+		else {
+			test_environment.starting_cell = "";
+			test_environment.starting_grid[0] = currentCell->gridX;
+			test_environment.starting_grid[1] = currentCell->gridY;
+		}
+		test_environment.position[0] = targetRef->position.x;
+		test_environment.position[1] = targetRef->position.y;
+		test_environment.position[2] = targetRef->position.z;
+		test_environment.orientation[0] = 0;
+		test_environment.orientation[1] = 0;
+		test_environment.orientation[2] = targetRef->orientationNonAttached.z;
+
+		settings.save();
+	}
+
+	void setTestingPositionToCamera() {
+		auto rendererController = RenderController::get();
+
+		auto currentCell = gCurrentCell::get();
+		auto& test_environment = settings.test_environment;
+		if (currentCell->getIsInterior()) {
+			test_environment.starting_cell = currentCell->getObjectID();
+			test_environment.starting_grid = { 0, 0 };
+		}
+		else {
+			test_environment.starting_cell = "";
+			test_environment.starting_grid[0] = currentCell->gridX;
+			test_environment.starting_grid[1] = currentCell->gridY;
+		}
+		test_environment.position[0] = rendererController->node->localTranslate.x;
+		test_environment.position[1] = rendererController->node->localTranslate.y;
+		test_environment.position[2] = rendererController->node->localTranslate.z;
+		test_environment.orientation[0] = 0;
+		test_environment.orientation[1] = 0;
+		test_environment.orientation[2] = 0;
+
+		settings.save();
+	}
+
+	void toggleLandscapeShown() {
+		using namespace landscape_edit_settings_window;
+
+		auto dataHandler = DataHandler::get();
+		auto landscapeRoot = dataHandler->editorLandscapeRoot;
+
+		const auto wasShown = !landscapeRoot->getAppCulled();
+
+		if (wasShown) {
+			setLandscapeEditingEnabled(false);
+			landscapeRoot->setAppCulled(true);
+		}
+		else {
+			setLandscapeEditingEnabled(true, true);
+			landscapeRoot->setAppCulled(false);
+		}
+	}
+
+	void toggleWaterShown() {
+		const auto dataHandler = DataHandler::get();
+		const auto waterRoot = dataHandler->waterRenderController->waterNode;
+
+		const auto wasShown = !waterRoot->getAppCulled();
+		if (wasShown) {
+			waterRoot->setAppCulled(true);
+		}
+		else {
+			waterRoot->setAppCulled(false);
+		}
+	}
+
+	void showContextAwareActionMenu(DialogProcContext& context) {
 		auto menu = CreatePopupMenu();
 		if (menu == NULL) {
 			return;
 		}
 
-		auto recordHandler = DataHandler::get()->recordHandler;
+		auto dataHandler = DataHandler::get();
+		auto recordHandler = dataHandler->recordHandler;
 		auto selectionData = SelectionData::get();
 		const bool hasReferencesSelected = selectionData->numberOfTargets > 0;
 
@@ -1069,20 +1517,43 @@ namespace se::cs::dialog::render_window {
 			SET_SNAPPING_AXIS_NEGATIVE_Y,
 			SET_SNAPPING_AXIS_POSITIVE_Z,
 			SET_SNAPPING_AXIS_NEGATIVE_Z,
+			ALIGN_SELECTION_POSITION_X,
+			ALIGN_SELECTION_POSITION_Y,
+			ALIGN_SELECTION_POSITION_Z,
+			ALIGN_SELECTION_ROTATION_X,
+			ALIGN_SELECTION_ROTATION_Y,
+			ALIGN_SELECTION_ROTATION_Z,
+			ALIGN_SELECTION_SCALE,
+			ALIGN_SELECTION_ALL,
 			USE_GROUP_SCALING,
-			USE_LEGACY_OBJECT_MOVEMENT,
 			USE_WORLD_AXIS_ROTATION,
 			SAVE_STATE_TO_QUICKSTART,
 			CLEAR_STATE_FROM_QUICKSTART,
+			TEST_FROM_REFERENCE_POSITION,
+			TEST_FROM_CAMERA_POSITION,
+			HIDE_LANDSCAPE,
+			HIDE_WATER,
+			RESET_ROTATION_X,
+			RESET_ROTATION_Y,
+			RESET_ROTATION_Z,
+			RESET_SCALE,
+			RESET_ROTATION_X_AND_Y,
+			RESET_ROTATION_AND_SCALE,
+			RANDOMIZE_ROTATION_Z,
+			RANDOMIZE_SCALE,
+			RANDOMIZE_ROTATION_Z_AND_SCALE,
 		};
 
 		/*
 		* Reserved hotkeys:
+		*   D: Hide/show landscape.
+		*   M: Toggle legacy object movement
+		*   T: Hide/show water.
+		*	E: Change Reference Data
 		*	H: Hide Selection
 		*	R: Restore Hidden References
 		*	S: Set Snapping Axis
 		*	W: Toggle world axis rotation
-		*   M: Toggle legacy object movement
 		*/
 
 		MENUITEMINFO menuItem = {};
@@ -1151,6 +1622,187 @@ namespace se::cs::dialog::render_window {
 		menuItem.dwTypeData = (LPSTR)"Set &Snapping Axis";
 		InsertMenuItemA(menu, index++, TRUE, &menuItem);
 
+		MENUITEMINFO subMenuAlignReferences = {};
+		subMenuAlignReferences.cbSize = sizeof(MENUITEMINFO);
+		subMenuAlignReferences.hSubMenu = CreateMenu();
+
+		{
+			unsigned int subIndex = 0;
+
+			menuItem.wID = ALIGN_SELECTION_POSITION_X;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Align Position X";
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = ALIGN_SELECTION_POSITION_Y;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Align Position Y";
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = ALIGN_SELECTION_POSITION_Z;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Align Position Z";
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESERVED_NO_CALLBACK;
+			menuItem.fMask = MIIM_FTYPE | MIIM_ID;
+			menuItem.fType = MFT_SEPARATOR;
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = ALIGN_SELECTION_ROTATION_X;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Align Rotation X";
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = ALIGN_SELECTION_ROTATION_Y;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Align Rotation Y";
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = ALIGN_SELECTION_ROTATION_Z;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Align Rotation Z";
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESERVED_NO_CALLBACK;
+			menuItem.fMask = MIIM_FTYPE | MIIM_ID;
+			menuItem.fType = MFT_SEPARATOR;
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = ALIGN_SELECTION_SCALE;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Align Scale";
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESERVED_NO_CALLBACK;
+			menuItem.fMask = MIIM_FTYPE | MIIM_ID;
+			menuItem.fType = MFT_SEPARATOR;
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = ALIGN_SELECTION_ALL;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Align All";
+			InsertMenuItemA(subMenuAlignReferences.hSubMenu, subIndex++, TRUE, &menuItem);
+		}
+
+		menuItem.wID = RESERVED_NO_CALLBACK;
+		menuItem.fMask = MIIM_SUBMENU | MIIM_TYPE;
+		menuItem.fType = MFT_STRING;
+		menuItem.fState = hasReferencesSelected ? MFS_ENABLED : MFS_DISABLED;
+		menuItem.hSubMenu = subMenuAlignReferences.hSubMenu;
+		menuItem.dwTypeData = (LPSTR)"Align References";
+		InsertMenuItemA(menu, index++, TRUE, &menuItem);
+
+		MENUITEMINFO subMenuReferenceData = {};
+		subMenuReferenceData.cbSize = sizeof(MENUITEMINFO);
+		subMenuReferenceData.hSubMenu = CreateMenu();
+
+		{
+			unsigned int subIndex = 0;
+
+			menuItem.wID = RESET_ROTATION_X;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Reset Rotation &X";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESET_ROTATION_Y;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Reset Rotation &Y";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESET_ROTATION_Z;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Reset Rotation &Z";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESERVED_NO_CALLBACK;
+			menuItem.fMask = MIIM_FTYPE | MIIM_ID;
+			menuItem.fType = MFT_SEPARATOR;
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESET_SCALE;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Reset &Scale";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESERVED_NO_CALLBACK;
+			menuItem.fMask = MIIM_FTYPE | MIIM_ID;
+			menuItem.fType = MFT_SEPARATOR;
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESET_ROTATION_X_AND_Y;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Reset Rotation X and Y";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESET_ROTATION_AND_SCALE;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Reset Rotation and Scale";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RESERVED_NO_CALLBACK;
+			menuItem.fMask = MIIM_FTYPE | MIIM_ID;
+			menuItem.fType = MFT_SEPARATOR;
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RANDOMIZE_ROTATION_Z;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Randomize Rotation Z";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RANDOMIZE_SCALE;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"Randomize Scale";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+
+			menuItem.wID = RANDOMIZE_ROTATION_Z_AND_SCALE;
+			menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+			menuItem.fType = MFT_STRING;
+			menuItem.fState = MFS_ENABLED;
+			menuItem.dwTypeData = (LPSTR)"&Randomize Rotation Z and Scale";
+			InsertMenuItemA(subMenuReferenceData.hSubMenu, subIndex++, TRUE, &menuItem);
+		}
+
+		menuItem.wID = RESERVED_NO_CALLBACK;
+		menuItem.fMask = MIIM_SUBMENU | MIIM_TYPE;
+		menuItem.fType = MFT_STRING;
+		menuItem.fState = hasReferencesSelected ? MFS_ENABLED : MFS_DISABLED;
+		menuItem.hSubMenu = subMenuReferenceData.hSubMenu;
+		menuItem.dwTypeData = (LPSTR)"R&eference Data";
+		InsertMenuItemA(menu, index++, TRUE, &menuItem);
+
 		menuItem.wID = USE_GROUP_SCALING;
 		menuItem.fMask = MIIM_FTYPE | MIIM_CHECKMARKS | MIIM_STRING | MIIM_ID;
 		menuItem.fType = MFT_STRING;
@@ -1158,14 +1810,6 @@ namespace se::cs::dialog::render_window {
 		menuItem.dwTypeData = (LPSTR)"Use Group Scaling";
 		InsertMenuItemA(menu, index++, TRUE, &menuItem);
 		CheckMenuItem(menu, USE_GROUP_SCALING, (settings.render_window.use_group_scaling) ? MFS_CHECKED : MFS_UNCHECKED);
-
-		menuItem.wID = USE_LEGACY_OBJECT_MOVEMENT;
-		menuItem.fMask = MIIM_FTYPE | MIIM_CHECKMARKS | MIIM_STRING | MIIM_ID;
-		menuItem.fType = MFT_STRING;
-		menuItem.fState = (settings.render_window.use_legacy_object_movement) ? MFS_CHECKED : MFS_UNCHECKED;
-		menuItem.dwTypeData = (LPSTR)"Use Legacy Object &Movement";
-		InsertMenuItemA(menu, index++, TRUE, &menuItem);
-		CheckMenuItem(menu, USE_LEGACY_OBJECT_MOVEMENT, (settings.render_window.use_legacy_object_movement) ? MFS_CHECKED : MFS_UNCHECKED);
 
 		menuItem.wID = USE_WORLD_AXIS_ROTATION;
 		menuItem.fMask = MIIM_FTYPE | MIIM_CHECKMARKS | MIIM_STRING | MIIM_ID;
@@ -1199,6 +1843,27 @@ namespace se::cs::dialog::render_window {
 		menuItem.fType = MFT_SEPARATOR;
 		InsertMenuItemA(menu, index++, TRUE, &menuItem);
 
+		menuItem.wID = HIDE_LANDSCAPE;
+		menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+		menuItem.fType = MFT_STRING;
+		menuItem.fState = MFS_ENABLED;
+		menuItem.dwTypeData = (LPSTR)"Hide lan&dscape";
+		InsertMenuItemA(menu, index++, TRUE, &menuItem);
+		CheckMenuItem(menu, HIDE_LANDSCAPE, dataHandler->editorLandscapeRoot->getAppCulled() ? MFS_CHECKED : MFS_UNCHECKED);
+
+		menuItem.wID = HIDE_WATER;
+		menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+		menuItem.fType = MFT_STRING;
+		menuItem.fState = MFS_ENABLED;
+		menuItem.dwTypeData = (LPSTR)"Hide wa&ter";
+		InsertMenuItemA(menu, index++, TRUE, &menuItem);
+		CheckMenuItem(menu, HIDE_WATER, dataHandler->waterRenderController->waterNode->getAppCulled() ? MFS_CHECKED : MFS_UNCHECKED);
+
+		menuItem.wID = RESERVED_NO_CALLBACK;
+		menuItem.fMask = MIIM_FTYPE | MIIM_ID;
+		menuItem.fType = MFT_SEPARATOR;
+		InsertMenuItemA(menu, index++, TRUE, &menuItem);
+
 		menuItem.wID = SAVE_STATE_TO_QUICKSTART;
 		menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
 		menuItem.fType = MFT_STRING;
@@ -1213,6 +1878,25 @@ namespace se::cs::dialog::render_window {
 		menuItem.dwTypeData = (LPSTR)"Clear QuickStart";
 		InsertMenuItemA(menu, index++, TRUE, &menuItem);
 
+		menuItem.wID = RESERVED_NO_CALLBACK;
+		menuItem.fMask = MIIM_FTYPE | MIIM_ID;
+		menuItem.fType = MFT_SEPARATOR;
+		InsertMenuItemA(menu, index++, TRUE, &menuItem);
+
+		menuItem.wID = TEST_FROM_REFERENCE_POSITION;
+		menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+		menuItem.fType = MFT_STRING;
+		menuItem.fState = SelectionData::get()->numberOfTargets > 0 ? MFS_ENABLED : MFS_DISABLED;
+		menuItem.dwTypeData = (LPSTR)"Use reference position for testing";
+		InsertMenuItemA(menu, index++, TRUE, &menuItem);
+
+		menuItem.wID = TEST_FROM_CAMERA_POSITION;
+		menuItem.fMask = MIIM_FTYPE | MIIM_STRING | MIIM_ID | MIIM_STATE;
+		menuItem.fType = MFT_STRING;
+		menuItem.fState = gCurrentCell::get() ? MFS_ENABLED : MFS_DISABLED;
+		menuItem.dwTypeData = (LPSTR)"Use camera position for testing";
+		InsertMenuItemA(menu, index++, TRUE, &menuItem);
+
 		POINT p;
 		GetCursorPos(&p);
 
@@ -1220,6 +1904,7 @@ namespace se::cs::dialog::render_window {
 		MSG msg;
 		PeekMessage(&msg, NULL, WM_CHAR, WM_CHAR, PM_REMOVE);
 
+		const auto hWndRenderWindow = context.getWindowHandle();
 		auto result = TrackPopupMenuEx(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_LEFTBUTTON | TPM_NOANIMATION | TPM_VERTICAL, p.x, p.y, hWndRenderWindow, NULL);
 		
 		switch (result) {
@@ -1249,12 +1934,59 @@ namespace se::cs::dialog::render_window {
 		case SET_SNAPPING_AXIS_NEGATIVE_Z:
 			snappingAxis = SnappingAxis::NEGATIVE_Z;
 			break;
+		case ALIGN_SELECTION_POSITION_X:
+			alignSelection(true, false, false, false, false, false, false);
+			break;
+		case ALIGN_SELECTION_POSITION_Y:
+			alignSelection(false, true, false, false, false, false, false);
+			break;
+		case ALIGN_SELECTION_POSITION_Z:
+			alignSelection(false, false, true, false, false, false, false);
+			break;
+		case ALIGN_SELECTION_ROTATION_X:
+			alignSelection(false, false, false, true, false, false, false);
+			break;
+		case ALIGN_SELECTION_ROTATION_Y:
+			alignSelection(false, false, false, false, true, false, false);
+			break;
+		case ALIGN_SELECTION_ROTATION_Z:
+			alignSelection(false, false, false, false, false, true, false);
+			break;
+		case ALIGN_SELECTION_SCALE:
+			alignSelection(false, false, false, false, false, false, true);
+			break;
+		case ALIGN_SELECTION_ALL:
+			alignSelection(true, true, true, true, true, true, true);
+			break;
+		case RESET_ROTATION_X:
+			resetOrRandomizeSelection(true, false, false, false, false, false);
+			break;
+		case RESET_ROTATION_Y:
+			resetOrRandomizeSelection(false, true, false, false, false, false);
+			break;
+		case RESET_ROTATION_Z:
+			resetOrRandomizeSelection(false, false, true, false, false, false);
+			break;
+		case RESET_SCALE:
+			resetOrRandomizeSelection(false, false, false, true, false, false);
+			break;
+		case RESET_ROTATION_X_AND_Y:
+			resetOrRandomizeSelection(true, true, false, false, false, false);
+			break;
+		case RESET_ROTATION_AND_SCALE:
+			resetOrRandomizeSelection(true, true, true, true, false, false);
+			break;
+		case RANDOMIZE_ROTATION_Z:
+			resetOrRandomizeSelection(false, false, false, false, true, false);
+			break;
+		case RANDOMIZE_SCALE:
+			resetOrRandomizeSelection(false, false, false, false, false, true);
+			break;
+		case RANDOMIZE_ROTATION_Z_AND_SCALE:
+			resetOrRandomizeSelection(false, false, false, false, true, true);
+			break;
 		case USE_GROUP_SCALING:
 			settings.render_window.use_group_scaling = !settings.render_window.use_group_scaling;
-			settings.save();
-			break;
-		case USE_LEGACY_OBJECT_MOVEMENT:
-			settings.render_window.use_legacy_object_movement = !settings.render_window.use_legacy_object_movement;
 			settings.save();
 			break;
 		case USE_WORLD_AXIS_ROTATION:
@@ -1267,6 +1999,18 @@ namespace se::cs::dialog::render_window {
 		case CLEAR_STATE_FROM_QUICKSTART:
 			clearRenderStateFromQuickStart();
 			break;
+		case TEST_FROM_REFERENCE_POSITION:
+			setTestingPositionToReference();
+			break;
+		case TEST_FROM_CAMERA_POSITION:
+			setTestingPositionToCamera();
+			break;
+		case HIDE_LANDSCAPE:
+			toggleLandscapeShown();
+			break;
+		case HIDE_WATER:
+			toggleWaterShown();
+			break;
 		default:
 			log::stream << "Unknown render window context menu ID " << result << " used!" << std::endl;
 		}
@@ -1277,107 +2021,478 @@ namespace se::cs::dialog::render_window {
 
 		// We also stole paint stuff, so repaint.
 		SendMessage(hWndRenderWindow, WM_PAINT, 0, 0);
-		PatchDialogProc_OverrideResult = TRUE;
+		context.setResult(TRUE);
 	}
 
-	void PatchDialogProc_BeforeLMouseButtonDown(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	namespace grid {
+		static void update() {
+			// Angle snapping is not currently not implemented for legacy rotation mode.
+			bool useWorldAxisRotation = settings.render_window.use_world_axis_rotations_by_default;
+			if (!useWorldAxisRotation && gIsRotating::get()) {
+				return;
+			}
+
+			// Grid snapping is not currently not implemented for legacy movement mode.
+			bool useLegacyObjectMovement = settings.render_window.use_legacy_object_movement;
+			if (useLegacyObjectMovement && gIsTranslating::get()) {
+				return;
+			}
+
+			auto widgets = SceneGraphController::get()->getWidgets();
+			if (!widgets) {
+				return;
+			}
+
+			auto target = SelectionData::get()->getLastTarget();
+			if (!target) {
+				return;
+			}
+
+			auto sceneNode = target->reference->sceneNode;
+			
+			if (gIsRotating::get()) {
+				widgets->updateAngleGuideGeometry(
+					sceneNode->worldBoundRadius,
+					gSnapAngleInDegrees::get()
+				);
+				widgets->updateAngleGuidePosition(
+					sceneNode->localTranslate,
+					gIsHoldingX::get(),
+					gIsHoldingY::get(),
+					gIsHoldingZ::get(),
+					gSnapAngleInDegrees::get()
+				);
+			}
+			else {
+				widgets->updateGridGeometry(
+					sceneNode->worldBoundRadius,
+					gSnapGrid::get()
+				);
+				widgets->updateGridPosition(
+					sceneNode->localTranslate,
+					gIsHoldingX::get(),
+					gIsHoldingY::get(),
+					gIsHoldingZ::get(),
+					gSnapGrid::get()
+				);
+			}
+
+			widgets->showGrid();
+
+			renderNextFrame();
+		}
+
+		static void hide() {
+			auto widgets = SceneGraphController::get()->getWidgets();
+			if (widgets->isGridShown()) {
+				widgets->hideGrid();
+				renderNextFrame();
+			}
+		}
+
+		static int prevStep(const std::vector<int>& steps, int current) {
+			for (auto itt = steps.rbegin(); itt != steps.rend(); ++itt) {
+				const auto& step = *itt;
+				if (step < current) {
+					return step;
+				}
+			}
+			return steps.front();
+		}
+
+		static int nextStep(const std::vector<int>& steps, int current) {
+			for (const auto step : steps) {
+				if (step > current) {
+					return step;
+				}
+			}
+			return steps.back();
+		}
+
+	}
+
+	void PatchDialogProc_BeforeMouseMove(DialogProcContext& context) {
+		// Cache cursor position.
+		lastCursorPosX = context.getMouseMoveX();
+		lastCursorPosY = context.getMouseMoveY();
+	}
+
+	void PatchDialogProc_BeforeLMouseButtonDown(DialogProcContext& context) {
 		movementContext.reset();
 	}
 
-	void PatchDialogProc_BeforeRMouseButtonDown(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	void PatchDialogProc_BeforeLMouseButtonUp(DialogProcContext& context) {
+		// Prevent selection changes during object rotation mode. Prevents non-undoable changes, and a crash if the selection becomes empty.
+		if (gIsRotating::get()) {
+			context.setResult(FALSE);
+		}
+	}
+
+	void PatchDialogProc_BeforeLMouseDoubleClick(DialogProcContext& context) {
+		// Prevent opening details dialog during object rotation mode.
+		if (gIsRotating::get()) {
+			context.setResult(FALSE);
+		}
+	}
+
+	void PatchDialogProc_BeforeRMouseButtonDown(DialogProcContext& context) {
 		constexpr auto comboPickLandscapeTexture = MK_CONTROL | MK_RBUTTON;
-		if ((wParam & comboPickLandscapeTexture) == comboPickLandscapeTexture) {
-			if (PickLandscapeTexture(hWnd)) {
-				PatchDialogProc_OverrideResult = TRUE;
+		const auto controlState = context.getWParam();
+		if ((controlState & comboPickLandscapeTexture) == comboPickLandscapeTexture) {
+			if (PickLandscapeTexture(context.getWindowHandle())) {
+				context.setResult(TRUE);
 			}
 		}
 	}
 
-	void PatchDialogProc_BeforeSetCameraPosition(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		if (RenderController::get()->node == nullptr) {
-			PatchDialogProc_OverrideResult = FALSE;
+	void PatchDialogProc_BeforeMouseWheel(DialogProcContext& context) {
+		using windows::isControlDown;
+		using windows::isRightMouseDown;
+
+		if (isControlDown()) {
+			// Allows Control+MouseWheel to adjust grid snap setting.
+			// Set override flag so we don't also modify camera zoom.
+			context.setResult(TRUE);
+
+			const auto delta = context.getMouseWheelDelta();
+
+			if (gIsRotating::get()) {
+				auto& steps = settings.render_window.angle_steps;
+				if (steps.size() == 0) {
+					return;
+				}
+
+				auto current = gSnapAngleInDegrees::get();
+				gSnapAngleInDegrees::set(
+					delta > 0 ? grid::prevStep(steps, current) : grid::nextStep(steps, current)
+				);
+			}
+			else {
+				auto& steps = settings.render_window.grid_steps;
+				if (steps.size() == 0) {
+					return;
+				}
+
+				auto current = gSnapGrid::get();
+				gSnapGrid::set(
+					delta > 0 ? grid::nextStep(steps, current) : grid::prevStep(steps, current)
+				);
+			}
+
+			grid::update();
 		}
 	}
 
-	void PatchDialogProc_AfterKeyDown(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		switch (wParam) {
+	void PatchDialogProc_BeforeSetCameraPosition(DialogProcContext& context) {
+		if (RenderController::get()->node == nullptr) {
+			context.setResult(FALSE);
+		}
+	}
+
+	void PatchDialogProc_BeforeTimer(DialogProcContext& context) {
+		// Fixup window capture if we've lost it when panning.
+		if (gIsPanning::get() && GetCapture() != gRenderWindowHandle::get()) {
+			SetCapture(gRenderWindowHandle::get());
+		}
+	}
+
+	void PatchDialogProc_AfterLMouseButtonUp(DialogProcContext& context) {
+		grid::hide();
+
+		// see: Patch_ReplaceScalingLogic
+		if (selectionNeedsScaleUpdate) {
+			selectionNeedsScaleUpdate = false;
+			for (auto target = SelectionData::get()->firstTarget; target; target = target->next) {
+				target->reference->setScale(target->reference->sceneNode->localScale);
+			}
+		}
+	}
+
+	void PatchDialogProc_AfterRMouseButtonDown(DialogProcContext& context) {
+		using windows::isControlDown;
+
+		if (isControlDown()) {
+			grid::update();
+		}
+	}
+
+	void PatchDialogProc_AfterRMouseButtonUp(DialogProcContext& context) {
+		using windows::isControlDown;
+
+		if (isControlDown()) {
+			grid::hide();
+		}
+	}
+
+	void focusReference(const Reference* reference) {
+		const auto CS_DataHandler_403A8F = reinterpret_cast<void(__thiscall*)(DataHandler*, Cell*, const NI::Vector3*)>(0x403A8F);
+		const auto CS_DataHandler_4034B8 = reinterpret_cast<void(__thiscall*)(DataHandler*, const NI::Vector3*)>(0x4034B8);
+		const auto CS_SendCommandToLoadCell = reinterpret_cast<void(__cdecl*)(const NI::Vector3*, const Reference*)>(0x403A12);
+
+		const auto dataHandler = DataHandler::get();
+		const auto cell = reference->getCell();
+		if (cell->getIsInterior()) {
+			CS_DataHandler_403A8F(dataHandler, cell, &reference->position);
+		}
+		else if (dataHandler->currentInteriorCell) {
+			CS_DataHandler_4034B8(dataHandler, &reference->position);
+		}
+
+		CS_SendCommandToLoadCell(&reference->position, reference);
+	}
+
+	void PatchDialogProc_BeforeKeyDown_F2(DialogProcContext& context) {
+		using windows::isControlDown;
+		using windows::isShiftDown;
+
+		const auto selectionData = SelectionData::get();
+		if (selectionData->firstTarget == nullptr) {
+			return;
+		}
+
+		const auto reference = selectionData->firstTarget->reference;
+
+		// If we are holding the shift key, open the base object editor.
+		if (isShiftDown()) {
+			window::main::showObjectEditWindow(reference->baseObject);
+		}
+		// If control is down, focus the associated marker/door.
+		else if (isControlDown()) {
+			const auto baseObject = reference->baseObject;
+			// Door markers focus the associated door.
+			if (baseObject == Static::gDoorMarker::get()) {
+				const auto loadDoor = reference->getDoorMarkerBackReference();
+				if (loadDoor) {
+					focusReference(loadDoor);
+				}
+			}
+			else if (baseObject->objectType == ObjectType::Door) {
+				const auto travelDestination = reference->getTravelDestination();
+				if (travelDestination) {
+					focusReference(travelDestination->destination);
+				}
+			}
+		}
+		// If no modifier keys are pressed, edit the reference.
+		else {
+			window::main::showObjectEditWindow(reference);
+		}
+
+		context.setResult(TRUE);
+	}
+
+	void PatchDialogProc_BeforeKeyDown(DialogProcContext& context) {
+		using windows::isControlDown;
+
+		const auto landscapeEditWindow = landscape_edit_settings_window::gWindowHandle::get();
+
+		switch (context.getKeyVirtualCode()) {
+		case VK_F2:
+			PatchDialogProc_BeforeKeyDown_F2(context);
+			break;
+		case VK_OEM_4: // [
+			if (landscapeEditWindow) {
+				landscape_edit_settings_window::decrementEditRadius();
+				context.setResult(TRUE);
+			}
+			break;
+		case VK_OEM_6: // ]
+			if (landscapeEditWindow) {
+				landscape_edit_settings_window::incrementEditRadius();
+				context.setResult(TRUE);
+			}
+			break;
+		case 'F':
+			if (landscapeEditWindow) {
+				if (!context.getKeyWasDown()) {
+					landscape_edit_settings_window::setFlattenLandscapeVertices(!landscape_edit_settings_window::getFlattenLandscapeVertices());
+				}
+				context.setResult(TRUE);
+			}
+			break;
+		case 'H':
+			// Ctrl+H -> Open "Search and Replace" menu.
+			if (isControlDown()) {
+				SendMessageA(window::main::ghWnd::get(), WM_COMMAND, window::main::WM_COMMAND_OPEN_SEARCH_AND_REPLACE, 0);
+				context.setResult(TRUE);
+			}
+			// H otherwise opens the terrain window.
+			break;
+		case 'S':
+			if (landscapeEditWindow) {
+				if (!context.getKeyWasDown()) {
+					landscape_edit_settings_window::setSoftenLandscapeVertices(!landscape_edit_settings_window::getSoftenLandscapeVertices());
+				}
+				context.setResult(TRUE);
+			}
+			break;
+		case 'O':
+			if (landscapeEditWindow) {
+				if (!context.getKeyWasDown()) {
+					landscape_edit_settings_window::setEditLandscapeColor(!landscape_edit_settings_window::getEditLandscapeColor());
+				}
+				context.setResult(TRUE);
+			}
+			break;
+		case 'X':
+			// If we are modifying an object, prevent the default cut function from happening.
+			if (isModifyingObject()) {
+				resetCumulativeRotationValues();
+				gIsHoldingX::set(true);
+				context.setResult(TRUE);
+			}
+			// Prevent attempting to cut when there's nothing selected.
+			else if (isControlDown() && SelectionData::get()->firstTarget == nullptr) {
+				context.setResult(TRUE);
+			}
+			break;
+		case 'Y':
+			// If we are modifying an object, prevent the default redo function from happening.
+			if (isModifyingObject()) {
+				resetCumulativeRotationValues();
+				gIsHoldingY::set(true);
+				context.setResult(TRUE);
+			}
+			break;
+		case 'Z':
+			// If we are modifying an object, prevent the default undo function from happening.
+			if (isModifyingObject()) {
+				resetCumulativeRotationValues();
+				gIsHoldingZ::set(true);
+				context.setResult(TRUE);
+			}
+			break;
+		}
+
+		// Handle pressing a new axis key while we were already in grid/angle snapping mode.
+		if (!context.getKeyWasDown() && isControlDown() && isModifyingObject()) {
+			switch (context.getKeyVirtualCode()) {
+			case 'X':
+			case 'Y':
+			case 'Z':
+				grid::update();
+				break;
+			}
+		}
+	}
+
+	void PatchDialogProc_AfterKeyDown(DialogProcContext& context) {
+		switch (context.getKeyVirtualCode()) {
 		case 'Q':
-			showContextAwareActionMenu(hWnd);
+			showContextAwareActionMenu(context);
+			break;
+		case VK_CONTROL:
+			if (!context.getKeyWasDown() && (gIsTranslating::get() || gIsRotating::get())) {
+				grid::update();
+			}
 			break;
 		}
 	}
 
-	void PatchDialogProc_AfterKeyUp_XYZ(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	void PatchDialogProc_AfterKeyUp_XYZ(DialogProcContext& context) {
 		// Hide widgets if they are no longer needed.
-		auto widgets = SceneGraphController::get()->widgets;
+		auto widgets = SceneGraphController::get()->getWidgets();
 		if (!isHoldingAxisKey() && widgets->isShown()) {
 			widgets->hide();
 			movementContext.reset();
-			gRenderNextFrame::set(true);
+			renderNextFrame();
+		}
+
+		// If we released an X/Y/Z key update the grid to show the right angle.
+		if (widgets->isGridShown()) {
+			grid::update();
 		}
 	}
 
-	void PatchDialogProc_AfterKeyUp(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		switch (wParam) {
+	void PatchDialogProc_AfterKeyUp_Control(DialogProcContext& context) {
+		grid::hide();
+	}
+
+	void PatchDialogProc_AfterKeyUp(DialogProcContext& context) {
+		switch (context.getKeyVirtualCode()) {
 		case 'X':
 		case 'Y':
 		case 'Z':
-			PatchDialogProc_AfterKeyUp_XYZ(hWnd, msg, wParam, lParam);
+			PatchDialogProc_AfterKeyUp_XYZ(context);
+			break;
+		case VK_CONTROL:
+			PatchDialogProc_AfterKeyUp_Control(context);
 			break;
 		}
 	}
 
-	void PatchDialogProc_AfterInitDialog(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		// Initialize widget controller.
-		auto sgController = SceneGraphController::get();
-		sgController->widgets = new WidgetsController();
-		sgController->sceneRoot->attachChild(sgController->widgets->root);
+	void PatchDialogProc_AfterRefreshLandDisc(DialogProcContext& context) {
+		updateLandscapeCircleWidget();
 	}
 
 	namespace CustomWindowMessage {
 		constexpr UINT SetCameraPosition = 0x40Eu;
+		constexpr UINT RefreshLandscapeEditDisc = 0x417u;
 	}
 
 	LRESULT CALLBACK PatchDialogProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		PatchDialogProc_OverrideResult.reset();
+		DialogProcContext context(hWnd, msg, wParam, lParam, 0x45A3F0);
 
 		switch (msg) {
 		case WM_MOUSEMOVE:
-			lastRenderWindowPosX = LOWORD(lParam);
-			lastRenderWindowPosY = HIWORD(lParam);
+			PatchDialogProc_BeforeMouseMove(context);
+			break;
+		case WM_MOUSEWHEEL:
+			PatchDialogProc_BeforeMouseWheel(context);
 			break;
 		case WM_LBUTTONDOWN:
-			PatchDialogProc_BeforeLMouseButtonDown(hWnd, msg, wParam, lParam);
+			PatchDialogProc_BeforeLMouseButtonDown(context);
+			break;
+		case WM_LBUTTONUP:
+			PatchDialogProc_BeforeLMouseButtonUp(context);
+			break;
+		case WM_LBUTTONDBLCLK:
+			PatchDialogProc_BeforeLMouseDoubleClick(context);
 			break;
 		case WM_RBUTTONDOWN:
-			PatchDialogProc_BeforeRMouseButtonDown(hWnd, msg, wParam, lParam);
+			PatchDialogProc_BeforeRMouseButtonDown(context);
+			break;
+		case WM_KEYDOWN:
+			PatchDialogProc_BeforeKeyDown(context);
 			break;
 		case CustomWindowMessage::SetCameraPosition:
-			PatchDialogProc_BeforeSetCameraPosition(hWnd, msg, wParam, lParam);
+			PatchDialogProc_BeforeSetCameraPosition(context);
+			break;
+		case WM_TIMER:
+			PatchDialogProc_BeforeTimer(context);
 			break;
 		}
 
-		if (PatchDialogProc_OverrideResult) {
-			return PatchDialogProc_OverrideResult.value();
+		// Call original function, or return early if we already have a result.
+		if (context.hasResult()) {
+			return context.getResult();
 		}
-
-		// Call original function.
-		const auto CS_RenderWindowDialogProc = reinterpret_cast<WNDPROC>(0x45A3F0);
-		auto vanillaResult = CS_RenderWindowDialogProc(hWnd, msg, wParam, lParam);
+		else {
+			context.callOriginalFunction();
+		}
 
 		switch (msg) {
 		case WM_KEYDOWN:
-			PatchDialogProc_AfterKeyDown(hWnd, msg, wParam, lParam);
+			PatchDialogProc_AfterKeyDown(context);
 			break;
 		case WM_KEYUP:
-			PatchDialogProc_AfterKeyUp(hWnd, msg, wParam, lParam);
+			PatchDialogProc_AfterKeyUp(context);
 			break;
-		case WM_INITDIALOG:
-			PatchDialogProc_AfterInitDialog(hWnd, msg, wParam, lParam);
+		case WM_LBUTTONUP:
+			PatchDialogProc_AfterLMouseButtonUp(context);
+			break;
+		case WM_RBUTTONDOWN:
+			PatchDialogProc_AfterRMouseButtonDown(context);
+			break;
+		case WM_RBUTTONUP:
+			PatchDialogProc_AfterRMouseButtonUp(context);
+			break;
+		case CustomWindowMessage::RefreshLandscapeEditDisc:
+			PatchDialogProc_AfterRefreshLandDisc(context);
 			break;
 		}
 
-		return PatchDialogProc_OverrideResult.value_or(vanillaResult);
+		return context.getResult();
 	}
 
 	//
@@ -1388,14 +2503,20 @@ namespace se::cs::dialog::render_window {
 		using memory::genCallEnforced;
 		using memory::genCallUnprotected;
 		using memory::genJumpEnforced;
+		using memory::genJumpUnprotected;
 		using memory::genPushEnforced;
 		using memory::writeDoubleWordEnforced;
 		using memory::writePatchCodeUnprotected;
+		using memory::writeValueEnforced;
 
 		// Patch: Extend SceneGraphController structure.
 		static_assert(sizeof(SceneGraphController) < INT8_MAX);
 		genPushEnforced(0x4473FD, (BYTE)sizeof(SceneGraphController));
 		genJumpEnforced(0x403855, 0x449930, reinterpret_cast<DWORD>(SceneGraphController::initialize));
+
+		// Patch: Improve camera controls.
+		genJumpUnprotected(0x45E323, reinterpret_cast<DWORD>(Patch_ImproveCameraControls_EnterPanningMode_Wrapper), 0x7);
+		genJumpEnforced(0x40494E, 0x469C50, reinterpret_cast<DWORD>(Patch_ImproveCameraControls));
 
 		// Patch: Use world rotation values.
 		genJumpEnforced(0x403D41, 0x4652D0, reinterpret_cast<DWORD>(Patch_ReplaceRotationLogic));
@@ -1437,7 +2558,18 @@ namespace se::cs::dialog::render_window {
 		genCallEnforced(0x45F4ED, 0x4015A0, reinterpret_cast<DWORD>(PatchFixMaterialPropertyColors));
 		genCallEnforced(0x45F626, 0x4015A0, reinterpret_cast<DWORD>(PatchAddBlankTexturingProperty));
 
+		// Patch: Add scale information to status window.
+		genCallEnforced(0x45C962, 0x404881, reinterpret_cast<DWORD>(Patch_ExtendReferenceStatusData));
+
 		// Patch: Extend Render Window message handling.
 		genJumpEnforced(0x4020EF, 0x45A3F0, reinterpret_cast<DWORD>(PatchDialogProc));
+
+		// Patch: Customize render window update rate.
+		const auto limitTimeInMS = (BYTE)std::floor(1.0f / float(settings.render_window.fps_limit) * 1000.0f);
+		writeValueEnforced<BYTE>(0x45BF58 + 0x1, 40u, limitTimeInMS);
+
+		// Patch: Extend the selection widget to a full NiNode on references.
+		genJumpEnforced(0x40235B, 0x540D50, &Reference::createSelectionWidget);
+
 	}
 }

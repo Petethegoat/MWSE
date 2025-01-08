@@ -13,11 +13,67 @@ namespace TES3 {
 		Journal
 	};
 
+	enum class VoiceType : int {
+		Hello,
+		Idle,
+		Intruder,
+		Thief,
+		Hit,
+		Attack,
+		Flee,
+
+		COUNT,
+		Invalid = -1,
+	};
+
+	enum class GreetingType : int {
+		Greeting0,
+		Greeting1,
+		Greeting2,
+		Greeting3,
+		Greeting4,
+		Greeting5,
+		Greeting6,
+		Greeting7,
+		Greeting8,
+		Greeting9,
+
+		COUNT,
+		Invalid = -1,
+	};
+
+	enum class ResponseType : int {
+		InfoRefusal,
+		AdmireSuccess,
+		AdmireFail,
+		IntimidateSuccess,
+		IntimidateFail,
+		TauntSuccess,
+		TauntFail,
+		ServiceRefusal,
+		BribeSuccess,
+		BribeFail,
+
+		COUNT,
+		Invalid = -1,
+	};
+
+	struct DialogueName {
+		Dialogue* dialogue; // 0x0
+		const char* name; // 0x4
+
+		static nonstd::span<DialogueName> getVoices();
+		static nonstd::span<DialogueName> getGreetings();
+		static nonstd::span<DialogueName> getResponses();
+	};
+
 	struct Dialogue : BaseObject {
 		char * name;
 		DialogueType type;
 		IteratedList<DialogueInfo*> info;
 		int journalIndex;
+
+		static constexpr auto OBJECT_TYPE = ObjectType::Dialogue;
 
 		Dialogue() = delete;
 		~Dialogue() = delete;
@@ -39,9 +95,32 @@ namespace TES3 {
 		bool setJournalIndex(int index);
 		bool setJournalIndexAndMarkModified(int index);
 
+		enum class GetFilteredInfoContext : int {
+			Unknown,
+			ClickAnswer,
+			ClickTopic,
+			ClickTopicFallback,
+			Greeting,
+			HyperlinkParser,
+			Persuasion,
+			Script,
+			ServiceBarter,
+			ServiceEnchanting,
+			ServiceRepair,
+			ServiceSpellmaking,
+			ServiceSpells,
+			ServiceTraining,
+			ServiceTravel,
+			TopicPopulation,
+			Voice,
+
+			COUNT,
+			Invalid = -1,
+		};
+
 		DialogueInfo* getJournalInfoForIndex(int index) const;
-		DialogueInfo* getDeepFilteredInfo(Actor* actor, Reference* reference, bool flag);
 		DialogueInfo* getFilteredInfo(Actor* actor, Reference* reference, bool flag);
+		DialogueInfo* getFilteredInfoWithContext(Actor* actor, Reference* reference, bool flag, GetFilteredInfoContext context);
 
 		//
 		// Custom functions.
@@ -50,8 +129,13 @@ namespace TES3 {
 		std::string toJson();
 
 		bool addToJournal_lua(sol::table params);
+		DialogueInfo* getDeepFilteredInfo(Actor* actor, Reference* reference, bool flag, GetFilteredInfoContext context);
 		DialogueInfo* getDeepFilteredInfo_lua(sol::table params);
 		DialogueInfo* getJournalInfo(sol::optional<int> index) const;
+
+		VoiceType getVoiceType() const;
+		GreetingType getGreetingType() const;
+		ResponseType getResponseType() const;
 
 		//
 		// Other related static functions.

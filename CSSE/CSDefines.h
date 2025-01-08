@@ -1,12 +1,13 @@
 #pragma once
 
 namespace se::cs {
-	struct AIConfig;
 	struct Actor;
+	struct AIConfig;
 	struct AnimatedObject;
 	struct Apparatus;
 	struct Armor;
 	struct BaseObject;
+	struct Birthsign;
 	struct BodyPart;
 	struct Book;
 	struct Cell;
@@ -15,30 +16,38 @@ namespace se::cs {
 	struct DataHandler;
 	struct Dialogue;
 	struct DialogueInfo;
+	struct Door;
 	struct Effect;
 	struct Enchantment;
 	struct Faction;
 	struct GameFile;
 	struct GameSetting;
+	struct GameSettingInitializer;
+	struct GlobalVariable;
+	struct ItemData;
 	struct LandTexture;
 	struct LeveledCreature;
 	struct LeveledItem;
 	struct Light;
 	struct Lockpick;
 	struct ModelLoader;
+	struct NPC;
 	struct Object;
 	struct PhysicalObject;
 	struct Probe;
 	struct Race;
 	struct RecordHandler;
 	struct Reference;
+	struct Region;
 	struct RepairTool;
 	struct Script;
+	struct SecurityAttachmentNode;
 	struct Skill;
 	struct Sound;
 	struct Spell;
 	struct SpellList;
 	struct Static;
+	struct TravelDestination;
 	struct Weapon;
 
 	struct BaseObject_VirtualTable;

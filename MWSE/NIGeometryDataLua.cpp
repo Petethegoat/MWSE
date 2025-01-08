@@ -5,6 +5,7 @@
 
 #include "NIGeometryData.h"
 #include "NIRTTI.h"
+#include "NILinesData.h"
 #include "NiTriBasedGeometryData.h"
 #include "NITriShapeData.h"
 
@@ -25,6 +26,17 @@ namespace mwse::lua {
 			setUserdataForNIGeometryData(usertypeDefinition);
 		}
 
+		// Bind NI::LinesData
+		{
+			// Start our usertype.
+			auto usertypeDefinition = state.new_usertype<NI::LinesData>("niLinesData");
+			usertypeDefinition[sol::base_classes] = sol::bases<NI::Object, NI::GeometryData>();
+			usertypeDefinition["new"] = sol::no_constructor;
+
+			// Base class binding.
+			setUserdataForNIGeometryData(usertypeDefinition);
+		}
+
 		// Bind NI::TriBasedGeometryData
 		{
 			// Start our usertype.
@@ -34,6 +46,9 @@ namespace mwse::lua {
 
 			// Base class binding.
 			setUserdataForNIGeometryData(usertypeDefinition);
+
+			// Basic property binding.
+			usertypeDefinition["renderFlags"] = &NI::TriBasedGeometryData::patchRenderFlags;
 
 			// Functions exposed as properties.
 			usertypeDefinition["activeTriangleCount"] = sol::property(&NI::TriBasedGeometryData::getActiveTriangleCount, &NI::TriBasedGeometryData::setActiveTriangleCount);
@@ -50,6 +65,9 @@ namespace mwse::lua {
 			// Base class binding.
 			setUserdataForNIGeometryData(usertypeDefinition);
 
+			// Basic property binding.
+			usertypeDefinition["renderFlags"] = &NI::TriShapeData::patchRenderFlags;
+
 			// Functions exposed as properties.
 			usertypeDefinition["activeTriangleCount"] = sol::property(&NI::TriShapeData::getActiveTriangleCount, &NI::TriShapeData::setActiveTriangleCount);
 			usertypeDefinition["triangleCount"] = sol::readonly_property(&NI::TriShapeData::triangleCount);
@@ -63,7 +81,7 @@ namespace mwse::lua {
 		{
 			// Start our usertype.
 			auto usertypeDefinition = state.new_usertype<NI::Triangle>("niTriangle");
-			usertypeDefinition["new"] = sol::no_constructor;
+			usertypeDefinition["new"] = sol::constructors<NI::Triangle(), NI::Triangle(unsigned short, unsigned short, unsigned short), NI::Triangle(const sol::table)>();
 
 			// Basic bindings.
 			usertypeDefinition["vertices"] = sol::readonly_property(&NI::Triangle::getVertices);

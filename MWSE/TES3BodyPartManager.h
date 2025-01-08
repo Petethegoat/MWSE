@@ -109,9 +109,9 @@ namespace TES3 {
 		BodyPartManager* ctor(NI::Node* parentNode, Reference* reference);
 
 		ActiveBodyPart* getActiveBodyPartForItem(Item* item);
-		NI::Node* getActiveBodyPartNode(ActiveBodyPart::Layer layer, ActiveBodyPart::Index index);
+		NI::Node* getActiveBodyPartBaseNode(ActiveBodyPart::Layer layer, ActiveBodyPart::Index index);
 
-		void setActivePartData(ActiveBodyPart::Layer layer, ActiveBodyPart::Index index, bool overwriteData = true, NI::Node* node = nullptr);
+		void removeActiveBodyPart(ActiveBodyPart::Layer layer, ActiveBodyPart::Index index, bool setOverride = false, int overrideData = 0);
 		void setBodyPartForObject(PhysicalObject* object, ActiveBodyPart::Index index, BodyPart* bodyPart, bool isFirstPerson = false);
 		void setBodyPartByIdForObject(PhysicalObject* object, ActiveBodyPart::Index index, const char* bodyPartId, bool isFirstPerson = false);
 
@@ -124,7 +124,7 @@ namespace TES3 {
 		//
 
 		ActiveBodyPart* getActiveBodyPart(ActiveBodyPart::Layer layer, ActiveBodyPart::Index index);
-
+		std::reference_wrapper<decltype(attachNodes)> getAttachNodes();
 	};
 	static_assert(sizeof(BodyPartManager) == 0xA94, "TES3::BodyPartManager failed size validation");
 	static_assert(sizeof(BodyPartManager::AttachNode) == 0x38, "TES3::BodyPartManager::AttachNode failed size validation");

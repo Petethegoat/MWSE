@@ -82,7 +82,7 @@ namespace NI {
 		// Other related this-call functions.
 		//
 
-		void update(float fTime = 0.0f, bool bUpdateControllers = false, bool bUpdateBounds = true);
+		void update(float fTime = 0.0f, bool bUpdateControllers = false, bool bUpdateChildren = true);
 		void updateEffects();
 		void updateProperties();
 		TES3::Matrix33* getLocalRotationMatrix() const;
@@ -91,6 +91,8 @@ namespace NI {
 		void attachProperty(Property* property);
 		Pointer<Property> detachPropertyByType(PropertyType type);
 		sol::table detachAllProperties_lua(sol::this_state ts);
+
+		bool intersectBounds(const TES3::Vector3* position, const TES3::Vector3* direction, float* out_result) const;
 
 		//
 		// Custom functions.

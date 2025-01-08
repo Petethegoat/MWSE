@@ -26,6 +26,8 @@ namespace TES3 {
 		int minDistance; // 0x50
 		int maxDistance; // 0x58
 
+		static constexpr auto OBJECT_TYPE = ObjectType::Sound;
+
 		SoundBuffer() = delete;
 		~SoundBuffer() = delete;
 	};
@@ -84,6 +86,7 @@ namespace TES3 {
 
 		float getVolume();
 		void setVolume(float volume);
+		void adjustPlayingSoundVolume(unsigned char volume);
 
 		std::string toJson() const;
 		bool play_lua(sol::optional<sol::table> params);

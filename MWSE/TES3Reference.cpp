@@ -660,17 +660,17 @@ namespace TES3 {
 
 	Vector3 Reference::getForwardDirectionVector() {
 		Matrix33 rotation = getRotationMatrix();
-		return rotation.getForwardVector();
+		return rotation.getForwardVector().normalized();
 	}
 
 	Vector3 Reference::getRightDirectionVector() {
 		Matrix33 rotation = getRotationMatrix();
-		return rotation.getRightVector();
+		return rotation.getRightVector().normalized();
 	}
 
 	Vector3 Reference::getUpDirectionVector() {
 		Matrix33 rotation = getRotationMatrix();
-		return rotation.getUpVector();
+		return rotation.getUpVector().normalized();
 	}
 
 	float Reference::getFacing() {
@@ -686,6 +686,12 @@ namespace TES3 {
 		auto rotation = getFacing();
 		Vector3 forward(sinf(rotation), cosf(rotation), 0.0f);
 		return (*reference->getPosition() - *getPosition()).angle(&forward);
+	}
+
+	bool Reference::isInSameWorldspace(const Reference* other) const {
+		const auto cell1 = getCell();
+		const auto cell2 = other->getCell();
+		return cell1->getIsInterior() ? (cell1 == cell2) : (!cell2->getIsInterior());
 	}
 
 	const auto TES3_Reference_setTravelDestination = reinterpret_cast<TravelDestination*(__thiscall*)(Reference*, const Vector3 *, const Vector3*)>(0x4E7B80);
@@ -844,12 +850,17 @@ namespace TES3 {
 	}
 
 	void Reference::setStackSize(int count) {
-		getOrCreateAttachedItemData()->count = count;
+		const auto itemData = getOrCreateAttachedItemData();
+		if (itemData == nullptr) {
+			throw std::runtime_error("This item does not support tes3itemData creation.");
+		}
+
+		itemData->count = count;
 	}
 
 	bool Reference::hasValidBaseObject() const {
 		return this != nullptr
-			&& uint32_t(vTable.object) != TES3::VirtualTableAddress::BaseObject
+			&& uint32_t(vTable.object) == TES3::VirtualTableAddress::Reference
 			&& baseObject != nullptr
 			&& uint32_t(baseObject->vTable.object) != TES3::VirtualTableAddress::BaseObject;
 	}
@@ -876,10 +887,16 @@ namespace TES3 {
 
 	const auto TES3_Reference_getSceneGraphNode = reinterpret_cast<NI::Node*(__thiscall*)(Reference*)>(0x4E81A0);
 	NI::Node * Reference::getSceneGraphNode() {
+		// Ignore for deleted objects.
+		if (getDeleted()) {
+			return nullptr;
+		}
+
 		auto previousNode = sceneNode;
 		auto newNode = TES3_Reference_getSceneGraphNode(this);
+		const auto wasCreated = (previousNode == nullptr && newNode != nullptr);
 
-		if (mwse::lua::event::ReferenceSceneNodeCreatedEvent::getEventEnabled() && hasValidBaseObject() && previousNode != newNode) {
+		if (wasCreated && mwse::lua::event::ReferenceSceneNodeCreatedEvent::getEventEnabled() && hasValidBaseObject()) {
 			mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle().triggerEvent(new mwse::lua::event::ReferenceSceneNodeCreatedEvent(this));
 		}
 
@@ -940,22 +957,18 @@ namespace TES3 {
 	}
 
 	Inventory * Reference::getInventory() {
-		// Only actors have equipment.
-		if (baseObject->objectType != ObjectType::Container &&
-			baseObject->objectType != ObjectType::Creature &&
-			baseObject->objectType != ObjectType::NPC) {
-			return NULL;
+		// Only actors have inventories.
+		if (!baseObject->isActor()) {
+			return nullptr;
 		}
 
 		return &reinterpret_cast<Actor*>(baseObject)->inventory;
 	}
 
-	IteratedList<EquipmentStack*> * Reference::getEquipment() {
+	IteratedList<EquipmentStack*>* Reference::getEquipment() {
 		// Only actors have equipment.
-		if (baseObject->objectType != ObjectType::Container &&
-			baseObject->objectType != ObjectType::Creature &&
-			baseObject->objectType != ObjectType::NPC) {
-			return NULL;
+		if (!baseObject->isActor()) {
+			return nullptr;
 		}
 
 		return &reinterpret_cast<Actor*>(baseObject)->equipment;
@@ -981,6 +994,12 @@ namespace TES3 {
 			// Update reference position/orientation.
 			reference->position = *position;
 			reference->orientation.z = rotationInRadians;
+
+			auto attachment = static_cast<NewOrientationAttachment*>(reference->getAttachment(AttachmentType::NewOrientation));
+			if (attachment) {
+				attachment->position = reference->position;
+				attachment->orientation = reference->orientation;
+			}
 
 			// Update scene node, if loaded.
 			// Note: Calling reference->getSceneGraphNode() here can crash if the reference is to a base actor,
@@ -1122,12 +1141,11 @@ namespace TES3 {
 
 	bool Reference::onCloseInventory() {
 		// Check to make sure that the contained object is of the right type.
-		ObjectType::ObjectType baseType = baseObject->objectType;
-		if (baseType != ObjectType::Container && baseType != ObjectType::Creature && baseType != ObjectType::NPC) {
+		if (!baseObject->isActor()) {
 			return false;
 		}
 
-		Actor* actor = reinterpret_cast<Actor*>(baseObject);
+		auto actor = static_cast<Actor*>(baseObject);
 		actor->vTable.actor->onCloseInventory(actor, this, 0);
 		return true;
 	}

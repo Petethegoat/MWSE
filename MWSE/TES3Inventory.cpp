@@ -113,8 +113,13 @@ namespace TES3 {
 	}
 
 	const auto TES3_EquipmentStack_CalculateBarterItemValue = reinterpret_cast<int(__cdecl*)(const TES3::EquipmentStack*)>(0x5A46E0);
-	int EquipmentStack::getAdjustedValue() {
+	int EquipmentStack::getAdjustedValue() const {
 		return TES3_EquipmentStack_CalculateBarterItemValue(this);
+	}
+
+	const auto TES3_EquipmentStack_CanonicalCopy = reinterpret_cast<TES3::EquipmentStack * (__cdecl*)(const TES3::EquipmentStack*)>(0x465420);
+	EquipmentStack* EquipmentStack::canonicalCopy() const {
+		return TES3_EquipmentStack_CanonicalCopy(this);
 	}
 
 	//
@@ -180,6 +185,37 @@ namespace TES3 {
 
 	Actor* Inventory::getActor() {
 		return reinterpret_cast<Actor*>(reinterpret_cast<BYTE*>(this) - offsetof(Actor, inventory));
+	}
+
+	int Inventory::getItemCount(Item* item) {
+		auto stack = findItemStack(item);
+		if (stack == nullptr) {
+			return 0;
+		}
+
+		return stack->count;
+	}
+
+	int Inventory::getItemCount_lua(sol::object itemOrItemId) {
+		if (itemOrItemId.is<TES3::Item*>()) {
+			return getItemCount(itemOrItemId.as<TES3::Item*>());
+		}
+		else if (itemOrItemId.is<const char*>()) {
+			auto dataHandler = TES3::DataHandler::get();
+			if (dataHandler == nullptr) {
+				return 0;
+			}
+
+			auto itemId = itemOrItemId.as<const char*>();
+			auto item = dataHandler->nonDynamicData->resolveObjectByType<TES3::Item>(itemId);
+			if (item == nullptr) {
+				return 0;
+			}
+
+			return getItemCount(item);
+		}
+
+		return 0;
 	}
 
 	bool Inventory::containsItem(Item * item, ItemData * data) {

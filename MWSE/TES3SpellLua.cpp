@@ -15,7 +15,7 @@
 namespace mwse::lua {
 	TES3::Spell* createSpell(std::string id, sol::optional<std::string> name) {
 		// Make sure a spell doesn't already exist with this id.
-		if (TES3::DataHandler::get()->nonDynamicData->resolveObjectByType<TES3::Spell>(id, TES3::ObjectType::Spell) != nullptr) {
+		if (TES3::DataHandler::get()->nonDynamicData->objectExists(id)) {
 			return nullptr;
 		}
 
@@ -89,6 +89,7 @@ namespace mwse::lua {
 		usertypeDefinition["create"] = &createSpell;
 		usertypeDefinition["createCopy"] = &TES3::Spell::createCopy_lua<TES3::Spell>;
 		usertypeDefinition["getActiveEffectCount"] = &TES3::Spell::getActiveEffectCount;
+		usertypeDefinition["getAutoCalcMagickaCost"] = &TES3::Spell::getAutoCalcMagickaCost;
 		usertypeDefinition["getFirstIndexOfEffect"] = &TES3::Spell::getFirstIndexOfEffect;
 		usertypeDefinition["getLeastProficientEffect"] = &TES3::Spell::getLeastProficientEffect_lua;
 		usertypeDefinition["getLeastProficientSchool"] = &TES3::Spell::getLeastProficientSchool_lua;

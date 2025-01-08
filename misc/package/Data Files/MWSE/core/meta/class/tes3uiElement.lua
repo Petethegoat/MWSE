@@ -4,7 +4,7 @@
 --- @meta
 --- A UI element, the main building block of the UI system. All elements are created with methods on a parent Element.  Elements are very configurable, and have many HTML-like layout features. All layout properties can be set to `nil` to reset them to the default value, which will deactivate any related layout mode.
 --- 
---- Elements can have custom data attached using their `Property`_ key-value store, and specific Elements have specific `element.widget` accessors to control behaviour.
+--- Elements can have custom data attached using their `Property` key-value store, and specific Elements have specific `element.widget` accessors to control behaviour.
 --- @class tes3uiElement
 --- @field absolutePosAlignX number The horizontal alignment of the element relative to it's parent element. Can be `nil`. If `nil`, deactivates behaviour associated with this property. Valid values range from `0.0` to `1.0`. Sets the element's `positionX` to a point relative to the parent element. A value of `0.0` is equal to the parent element's left content edge, whereas a value of `1.0` is equal to the parent element's right content edge. The positioning is absolute, which frees the element from the standard flow layout and allows overlapping elements.
 --- 	
@@ -17,6 +17,9 @@
 --- 
 --- Elements may not respond to `heightProportional` sizing after this property is set. If you need to use both you should consider testing if it works first.
 --- @field alpha number The element's alpha color. Valid values range from `0.0` to `1.0`. Used to composite elements. If you wish to hide an element completely, use `disable` instead.
+--- 
+--- !!! tip
+--- 	Set your menu's alpha value to the [`tes3.worldController.menuAlpha`](https://mwse.github.io/MWSE/types/tes3worldController/#menualpha) to match the User's "Menu transparency" setting.
 --- @field autoHeight boolean If `true`, automatically expands element dimensions to fit child elements. Ignores child elements that have `ignoreLayoutY` set to `true`. Dimensions are restricted by `minWidth`, `minHeight`, `maxWidth` and `maxHeight` properties.
 --- @field autoWidth boolean If `true`, automatically expands element dimensions to fit child elements. Ignores child elements that have `ignoreLayoutX` set to `true`. Dimensions are restricted by `minWidth`, `minHeight`, `maxWidth` and `maxHeight` properties.
 --- @field borderAllSides integer The border size in pixels. Border is the extra empty space around an element. Individual border sizes default to using the borderAllSides setting.
@@ -24,10 +27,12 @@
 --- @field borderLeft integer The left border size in pixels. When this is set to `-1`, the `borderAllSides` setting is used for this side instead.
 --- @field borderRight integer The left border size in pixels. When this is set to `-1`, the `borderAllSides` setting is used for this side instead.
 --- @field borderTop integer The top border size in pixels. When this is set to `-1`, the `borderAllSides` setting is used for this side instead.
---- @field childAlignX number Sets alignment of child elements inside its parent, though it only works in specific conditions. 0.0 = left/top edge touches left/top edge of parent, 0.5 = centred, 1.0 = right/bottom edge touches right/bottom edge of parent. For negative values, there is a special case behaviour: all children but the last will be left-aligned/top-aligned, the last child will be right-aligned/bottom-aligned.
+--- @field childAlignX number Sets alignment of child elements inside its parent, as a fraction of interior space. Either childAlignX or childAlignY is used depending on the flow direction. childAlignX (horizontal alignment) is used for top-to-bottom flow direction, and childAlignY (vertical alignment) is used for left-to-right flow direction. Previous limitations on using this layout have been resolved.
 --- 
---- !!! important
---- 	Child alignment only works if the element has proportional sizing (using widthProportional/heightProportional) and all children use non-proportional sizing (widthProportional and heightProportional are nil).
+--- 0.0 = Left/top edge touches left/top edge of parent.
+--- 0.5 = Centered.
+--- 1.0 = Right/bottom edge touches right/bottom edge of parent.
+--- For negative values, there is a special case behaviour: all children but the last will be left-aligned/top-aligned, the last child will be right-aligned/bottom-aligned.
 --- @field childAlignY number See childAlignX.
 --- @field childOffsetX integer The view offset in pixels, applied to the position of child nodes. Used in scroll panes.
 --- @field childOffsetY number See childOffsetX.
@@ -35,13 +40,17 @@
 --- @field color number[] The RGB color of the element. An array of 3 numbers with values ranging from `0.0` to `1.0`. For menus and rects, it sets the background color. For text, it sets the text color. For images, it multiplies the image by the color.
 --- @field consumeMouseEvents boolean When `true`, mouse events over this element are sent to event handlers, or discarded if there is no handler. When `false`, mouse events go upwards to the first ancestor that can consume mouse events. Useful to set on widget sub-elements. `true` by default.
 --- @field contentPath string The file path to the image or model content of this element. Only used if `contentType` is set to `tes3.contentType.image` or `tes3.contentType.model`.
---- @field contentType string *Read-only*. The type of content this `tes3uiElement` represents. Maps to values in the [`tes3.contentType`](https://mwse.github.io/MWSE/references/content-types/) table.
+--- @field contentType tes3.contentType *Read-only*. The type of content this `tes3uiElement` represents. Maps to values in the [`tes3.contentType`](https://mwse.github.io/MWSE/references/content-types/) table.
 --- @field disabled boolean Disables user actions on this element. Widgets may stop accepting mouse and keyboard input while disabled.
---- @field flowDirection string Can have values `"left_to_right"` or `"top_to_bottom"`. These values are available as [`tes3.flowDirection`](https://mwse.github.io/MWSE/references/flow-directions/) enumeration. Indicates which direction child elements are laid out.
---- @field font number Index of font to use for text.
---- 		0 - Magic Cards (default)
---- 		1 - Century Sans
---- 		2 - Daedric
+--- @field flowDirection tes3.flowDirection Indicates which direction child elements are laid out. These values are available as [`tes3.flowDirection`](https://mwse.github.io/MWSE/references/flow-directions/) enumeration.
+--- @field font integer Index of font to use for text. These indices are mapped to actual font files in the `Morrowind.ini` file under the [Fonts] section. The table below lists the default fonts mapping.
+--- 
+--- Index | description
+--- ----- | -----------
+--- 0     | `magic_cards_regular` (Magic Cards, default)
+--- 1     | `century_gothic_font_regular` (Century Sans)
+--- 2     | `daedric_font`
+--- 
 --- @field height integer The element's height in pixels.
 --- @field heightProportional number Sets element dimensions using a proportional sizer. The sizer starts with the parent dimension in the flow direction, subtracts any fixed dimension children leaving the proportional sizer space. Each proportionally sized element then gets an equal division of the space, multiplied by this member. Values above 1.0 are permissible.
 --- 
@@ -56,9 +65,10 @@
 --- @field ignoreLayoutY boolean If `true`, the element's [`positionY`](https://mwse.github.io/MWSE/types/tes3uiElement/#positiony) can be modified and will not be affected by any layout restrictions imposed by the parent element. Incompatible with and will change the value of [`absolutePosAlignY`](https://mwse.github.io/MWSE/types/tes3uiElement/#absoluteposaligny).
 --- 	
 --- Elements that bypass parent layout will be ignored when automatically determing the parent's height. See [`autoHeight`](https://mwse.github.io/MWSE/types/tes3uiElement/#autoheight) for more information.
+--- @field imageFilter boolean If true image filtering for `texture` is set to bilinear. It's set to linear otherwise.
 --- @field imageScaleX number Image scaling multipliers. Only applies to image elements. `0` disables scaling and displays the original image. Negative numbers will mirror and scale along this axis.
 --- @field imageScaleY number Image scaling multipliers. Only applies to image elements. `0` disables scaling and displays the original image. Negative numbers will mirror and scale along this axis.
---- @field justifyText string Can have values `"left"`, `"center"`, or `"right"`. Controls text justification. Maps to values in the [`tes3.justifyText`](https://mwse.github.io/MWSE/references/justify-text/) table. To work correctly for center/right justification, `wrapText` must be `true`.
+--- @field justifyText tes3.justifyText Controls text justification. To work correctly for center/right justification, `wrapText` must be `true`. Maps to values in the [`tes3.justifyText`](https://mwse.github.io/MWSE/references/justify-text/) table.
 --- @field maxHeight integer The maximum height for auto-size layout and resizable frames.
 --- @field maxWidth integer The maximum width for auto-size layout and resizable frames.
 --- @field minHeight integer The minimum height for auto-size layout and resizable frames.
@@ -75,15 +85,15 @@
 --- @field rawText string The raw value of the element's text. This, unlike the normal text property, will not directly read widget information or handle the removal of the positional cursor.
 --- @field repeatKeys boolean Controls if there is repeating text input when keys are held down. `true` by default.
 --- @field scaleMode boolean When set to `true` on image and NIF elements, the image or NIF is scaled to fit the element `width` and `height`.
---- @field sceneNode niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. Underlying access to the scene graph responsible for this element.
+--- @field sceneNode niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Underlying access to the scene graph responsible for this element.
 --- @field text string The element's text. Text input can be read by accessing this property.
 --- 
 --- !!! tip
 --- 	If your element's text is a number, you need to manually convert it to string using `tostring()`.
---- @field texture niSourceTexture The underlying texture for the element. This assumes that the element is of an element type. Setting this value will change the element to an image type.
---- @field type string *Read-only*. The type of content this `tes3uiElement` represents. This is an expanded set of the options available from the `contentType` property. Maps to values in [`tes3.uiElementType`](https://mwse.github.io/MWSE/references/tes3uiElement-types/).
+--- @field texture niSourceTexture The underlying texture for the element. This assumes that the element is of an element type. Setting this value will change the element to an image type. Texture dimensions must be powers of 2.
+--- @field type tes3.uiElementType *Read-only*. The type of content this `tes3uiElement` represents. This is an expanded set of the options available from the `contentType` property. Maps to values in [`tes3.uiElementType`](https://mwse.github.io/MWSE/references/tes3uiElement-types/).
 --- @field visible boolean Controls if the element is visible.
---- @field widget tes3uiButton|tes3uiCycleButton|tes3uiFillBar|tes3uiHyperlink|tes3uiParagraphInput|tes3uiScrollPane|tes3uiSlider|tes3uiTextInput|tes3uiTextSelect|nil Access to element specific properties. This will be `nil` if there are no element specific properties. See the return types and the create* functions for more details.
+--- @field widget tes3uiButton|tes3uiColorPicker|tes3uiColorPreview|tes3uiCycleButton|tes3uiFillBar|tes3uiHyperlink|tes3uiParagraphInput|tes3uiScrollPane|tes3uiSlider|tes3uiTextInput|tes3uiTextSelect|nil Access to element specific properties. This will be `nil` if there are no element specific properties. See the return types and the create* functions for more details.
 --- @field width integer The element's width in pixels.
 --- @field widthProportional number Sets element dimensions using a proportional sizer. The sizer starts with the parent dimension in the flow direction, subtracts any fixed dimension children leaving the proportional sizer space. Each proportionally sized element then gets an equal division of the space, multiplied by this member. Values above 1.0 are permissible.
 --- 
@@ -138,6 +148,101 @@ function tes3uiElement:createButton(params) end
 --- @field id string|number|nil *Optional*. An identifier to help find this element later.
 --- @field text string? *Optional*. The text to add to the button. It will highlight on mouseover like a text select widget.
 
+--- Creates a color picker widget.
+--- 
+--- Color picker specific properties can be accessed through the `widget` property. The widget type for color pickers is [`tes3uiColorPicker`](https://mwse.github.io/MWSE/types/tes3uiColorPicker/).
+--- @param params tes3uiElement.createColorPicker.params? This table accepts the following values:
+--- 
+--- `id`: string|integer|nil — *Optional*. An identifier to help find this element later.
+--- 
+--- `initialColor`: mwseColorTable? — *Default*: `{ r = 1.0, g = 1.0, b = 1.0 }`. The initial color for the picker.
+--- 
+--- `alpha`: boolean? — *Default*: `false`. If `true` the picker will also allow picking an alpha value.
+--- 
+--- `initialAlpha`: number? — *Default*: `1`. The initial alpha value.
+--- 
+--- `vertical`: boolean? — *Default*: `false`. If `true`, saturation, hue and alpha bars and color previews are created in the second row below the main picker. If `false` they are created in the same row as the main picker.
+--- 
+--- `showDataRow`: boolean? — *Default*: `true`. If `true` the picker will have a text input below the main picker for changing the current hexadecimal RGB(A) value.
+--- 
+--- `showSaturationSlider`: boolean? — *Default*: `true`. If `true` the picker will have a slider below the main picker that moves current selection horizontally (in the saturation axis).
+--- 
+--- `showSaturationPicker`: boolean? — *Default*: `true`. If `true` the picker will have an additional bar for changing saturation of the currently selected color.
+--- 
+--- `height`: integer? — *Default*: `256`. The height of the main, hue, and optionally alpha and saturation, pickers.
+--- 
+--- `mainWidth`: integer? — *Default*: `256`. The width of the main picker.
+--- 
+--- `hueWidth`: integer? — *Default*: `32`. The width of pickers for hue, and optionally alpha and saturation.
+--- 
+--- `showPreviews`: boolean? — *Default*: `true`. If `false` the picker won't have any color preview widgets.
+--- 
+--- `showOriginal`: boolean? — *Default*: `true`. If `true` the picker will have a preview widget that shows original color below the currently picked color. Clicking on the original color will reset current color to original color.
+--- 
+--- `previewHeight`: integer? — *Default*: `64`. If color picker has color previews, this will be the height of individual preview image.
+--- 
+--- `previewWidth`: integer? — *Default*: `64`. If color picker has color previews, this will be the width of individual preview image.
+--- @return tes3uiElement result No description yet available.
+function tes3uiElement:createColorPicker(params) end
+
+---Table parameter definitions for `tes3uiElement.createColorPicker`.
+--- @class tes3uiElement.createColorPicker.params
+--- @field id string|integer|nil *Optional*. An identifier to help find this element later.
+--- @field initialColor mwseColorTable? *Default*: `{ r = 1.0, g = 1.0, b = 1.0 }`. The initial color for the picker.
+--- @field alpha boolean? *Default*: `false`. If `true` the picker will also allow picking an alpha value.
+--- @field initialAlpha number? *Default*: `1`. The initial alpha value.
+--- @field vertical boolean? *Default*: `false`. If `true`, saturation, hue and alpha bars and color previews are created in the second row below the main picker. If `false` they are created in the same row as the main picker.
+--- @field showDataRow boolean? *Default*: `true`. If `true` the picker will have a text input below the main picker for changing the current hexadecimal RGB(A) value.
+--- @field showSaturationSlider boolean? *Default*: `true`. If `true` the picker will have a slider below the main picker that moves current selection horizontally (in the saturation axis).
+--- @field showSaturationPicker boolean? *Default*: `true`. If `true` the picker will have an additional bar for changing saturation of the currently selected color.
+--- @field height integer? *Default*: `256`. The height of the main, hue, and optionally alpha and saturation, pickers.
+--- @field mainWidth integer? *Default*: `256`. The width of the main picker.
+--- @field hueWidth integer? *Default*: `32`. The width of pickers for hue, and optionally alpha and saturation.
+--- @field showPreviews boolean? *Default*: `true`. If `false` the picker won't have any color preview widgets.
+--- @field showOriginal boolean? *Default*: `true`. If `true` the picker will have a preview widget that shows original color below the currently picked color. Clicking on the original color will reset current color to original color.
+--- @field previewHeight integer? *Default*: `64`. If color picker has color previews, this will be the height of individual preview image.
+--- @field previewWidth integer? *Default*: `64`. If color picker has color previews, this will be the width of individual preview image.
+
+--- Creates a color preview widget. It's made of a rect element of provided color and an image. The image shows current RGBA color over the checkered background.
+--- 
+--- Color preview specific properties can be accessed through the `widget` property. The widget type for color previews is [`tes3uiColorPreview`](https://mwse.github.io/MWSE/types/tes3uiColorPreview/).
+--- @param params tes3uiElement.createColorPreview.params? This table accepts the following values:
+--- 
+--- `id`: string|integer|nil — *Optional*. An identifier to help find this element later.
+--- 
+--- `color`: mwseColorTable|ffiImagePixel|nil — *Default*: `{ r = 1.0, g = 1.0, b = 1.0 }`. The color of the preview.
+--- 
+--- `hasAlphaPreview`: boolean? — *Default*: `true`. If `true`, the color preview in addition to colored rect also has an image that shows current color over a checkered background.
+--- 
+--- `alpha`: number? — *Default*: `1`. The alpha value of the preview.
+--- 
+--- `width`: integer? — *Default*: `64`. The width of the individual preview element.
+--- 
+--- `height`: integer? — *Default*: `64`. The height of the individual preview element.
+--- 
+--- `flowDirection`: tes3.flowDirection? — *Default*: `tes3.flowDirection.leftToRight`. Determines if the color preview is horizontal or vertical.
+--- 
+--- `checkerSize`: integer? — *Default*: `16`. The size of individual square in the color preview image in pixels.
+--- 
+--- `lightGray`: mwseColorTable? — *Default*: `{ r = 0.7, g = 0.7, b = 0.7 }`. The color of lighter squares in the color preview image.
+--- 
+--- `darkGray`: mwseColorTable? — *Default*: `{ r = 0.5, g = 0.5, b = 0.5 }`. The color of darker squares in the color preview image.
+--- @return tes3uiElement result No description yet available.
+function tes3uiElement:createColorPreview(params) end
+
+---Table parameter definitions for `tes3uiElement.createColorPreview`.
+--- @class tes3uiElement.createColorPreview.params
+--- @field id string|integer|nil *Optional*. An identifier to help find this element later.
+--- @field color mwseColorTable|ffiImagePixel|nil *Default*: `{ r = 1.0, g = 1.0, b = 1.0 }`. The color of the preview.
+--- @field hasAlphaPreview boolean? *Default*: `true`. If `true`, the color preview in addition to colored rect also has an image that shows current color over a checkered background.
+--- @field alpha number? *Default*: `1`. The alpha value of the preview.
+--- @field width integer? *Default*: `64`. The width of the individual preview element.
+--- @field height integer? *Default*: `64`. The height of the individual preview element.
+--- @field flowDirection tes3.flowDirection? *Default*: `tes3.flowDirection.leftToRight`. Determines if the color preview is horizontal or vertical.
+--- @field checkerSize integer? *Default*: `16`. The size of individual square in the color preview image in pixels.
+--- @field lightGray mwseColorTable? *Default*: `{ r = 0.7, g = 0.7, b = 0.7 }`. The color of lighter squares in the color preview image.
+--- @field darkGray mwseColorTable? *Default*: `{ r = 0.5, g = 0.5, b = 0.5 }`. The color of darker squares in the color preview image.
+
 --- Creates a clickable button, whose text changes linearly through options as it is clicked. Register the `valueChanged` event for when the option is cycled or changed via script.
 --- 
 --- Button specific properties can be accessed through the `widget` property. The widget type for buttons is [`tes3uiCycleButton`](https://mwse.github.io/MWSE/types/tes3uiCycleButton/).
@@ -188,6 +293,8 @@ function tes3uiElement:createFillBar(params) end
 --- @field max number? *Optional*. The maximum value of the fillbar.
 
 --- Creates a horizontally scrolling pane.
+--- 
+--- Scroll panes create a complex UI subtree, with a container for child elements. create* methods automatically place new elements in this container, not as a direct child of the scroll pane. The container element can be accessed with the `getContentElement()` method. It should be used when iterating or clearing the scroll pane contents.
 --- 
 --- Scroll pane specific properties can be accessed through the `widget` property. The widget type for scroll panes is [`tes3uiScrollPane`](https://mwse.github.io/MWSE/types/tes3uiScrollPane/).
 --- @param params tes3uiElement.createHorizontalScrollPane.params? This table accepts the following values:
@@ -286,14 +393,14 @@ function tes3uiElement:createLabel(params) end
 --- 
 --- `id`: string|number|nil — *Optional*. An identifier to help find this element later.
 --- 
---- `text`: string — A model path. This path is relative to `Data Files`.
+--- `path`: string — A model path. This path is relative to `Data Files`.
 --- @return tes3uiElement result No description yet available.
 function tes3uiElement:createNif(params) end
 
 ---Table parameter definitions for `tes3uiElement.createNif`.
 --- @class tes3uiElement.createNif.params
 --- @field id string|number|nil *Optional*. An identifier to help find this element later.
---- @field text string A model path. This path is relative to `Data Files`.
+--- @field path string A model path. This path is relative to `Data Files`.
 
 --- Creates a multi-line text input element, with line wrapping on. To receive input the keyboard must be captured with `tes3ui.acquireTextInput(element)`. Read the input with the `text` property. Write an initial value to edit by setting the `text` property.
 --- 
@@ -313,7 +420,7 @@ function tes3uiElement:createParagraphInput(params) end
 --- 
 --- `id`: string|number|nil — *Optional*. An identifier to help find this element later.
 --- 
---- `color`: tes3vector3|table|nil — *Optional*. The fill color for the element.
+--- `color`: tes3vector3|number[]|nil — *Optional*. The fill color for the element.
 --- 
 --- `randomizeColor`: boolean? — *Default*: `false`. If true, the creation color will be randomized.
 --- @return tes3uiElement result No description yet available.
@@ -322,7 +429,7 @@ function tes3uiElement:createRect(params) end
 ---Table parameter definitions for `tes3uiElement.createRect`.
 --- @class tes3uiElement.createRect.params
 --- @field id string|number|nil *Optional*. An identifier to help find this element later.
---- @field color tes3vector3|table|nil *Optional*. The fill color for the element.
+--- @field color tes3vector3|number[]|nil *Optional*. The fill color for the element.
 --- @field randomizeColor boolean? *Default*: `false`. If true, the creation color will be randomized.
 
 --- Creates a horizontal slider.
@@ -378,6 +485,8 @@ function tes3uiElement:createSliderVertical(params) end
 --- Creates a single line text input element. To receive input the keyboard must be captured with `tes3ui.acquireTextInput(element)`. Read the input with the `text` property. Write an initial value to display by setting the `text` property; that value will be cleared on the first keypress.
 --- 
 --- Text input specific properties can be accessed through the `widget` property. The widget type for text inputs is [`tes3uiTextInput`](https://mwse.github.io/MWSE/types/tes3uiTextInput/).
+---
+--- [Examples available in online documentation](https://mwse.github.io/MWSE/types/tes3uiElement/#createtextinput).
 --- @param params tes3uiElement.createTextInput.params? This table accepts the following values:
 --- 
 --- `id`: string|number|nil — *Optional*. An identifier to help find this element later.
@@ -409,7 +518,7 @@ function tes3uiElement:createTextInput(params) end
 --- 
 --- `text`: string? — *Optional*. The text to display.
 --- 
---- `state`: number? — *Default*: `tes3.uiState.normal`. The initial interaction state.
+--- `state`: tes3.uiState? — *Default*: `tes3.uiState.normal`. The initial interaction state.
 --- @return tes3uiElement result No description yet available.
 function tes3uiElement:createTextSelect(params) end
 
@@ -417,7 +526,7 @@ function tes3uiElement:createTextSelect(params) end
 --- @class tes3uiElement.createTextSelect.params
 --- @field id string|number|nil *Optional*. An identifier to help find this element later.
 --- @field text string? *Optional*. The text to display.
---- @field state number? *Default*: `tes3.uiState.normal`. The initial interaction state.
+--- @field state tes3.uiState? *Default*: `tes3.uiState.normal`. The initial interaction state.
 
 --- Creates a styled thin border element. Any content should be created as children of this border.
 --- @param params tes3uiElement.createThinBorder.params? This table accepts the following values:
@@ -432,9 +541,11 @@ function tes3uiElement:createThinBorder(params) end
 
 --- Creates a vertically scrolling pane. Useful as a list box.
 --- 
+--- Scroll panes create a complex UI subtree, with a container for child elements. create* methods automatically place new elements in this container, not as a direct child of the scroll pane. The container element can be accessed with the `getContentElement()` method. It should be used when iterating or clearing the scroll pane contents.
+--- 
 --- Scroll pane specific properties can be accessed through the `widget` property. The widget type for scroll panes is [`tes3uiScrollPane`](https://mwse.github.io/MWSE/types/tes3uiScrollPane/).
 ---
---- [Examples available in online documentation](https://mwse.github.io/MWSE/types/tes3uiElement/#createVerticalScrollPane).
+--- [Examples available in online documentation](https://mwse.github.io/MWSE/types/tes3uiElement/#createverticalscrollpane).
 --- @param params tes3uiElement.createVerticalScrollPane.params? This table accepts the following values:
 --- 
 --- `id`: string|number|nil — *Optional*. An identifier to help find this element later.
@@ -445,10 +556,12 @@ function tes3uiElement:createVerticalScrollPane(params) end
 --- @class tes3uiElement.createVerticalScrollPane.params
 --- @field id string|number|nil *Optional*. An identifier to help find this element later.
 
---- Deletes an element and all its child elements. If any element is bound to text input by `tes3ui.acquireTextInput`_, the input is automatically released.
+--- Deletes an element and all its child elements. If any element is bound to text input by `tes3ui.acquireTextInput`, the input is automatically released.
 function tes3uiElement:destroy() end
 
---- Deletes all the child elements of this element. If any element is bound to text input by `tes3ui.acquireTextInput`_, the input is automatically released.
+--- Deletes all the child elements of this element. If any element is bound to text input by `tes3ui.acquireTextInput`, the input is automatically released.
+--- 
+--- Some widgets like ScrollPanes are built of multiple layers of elements. When an element is created in a complex widget, it is automatically placed as a child of a content element. When clearing a widget's children, you should use `element:getContentElement():destroyChildren()`.
 function tes3uiElement:destroyChildren() end
 
 --- Finds a child element matching the `id` argument. Searches children recursively. Returns the first child element with a matching id, or `nil` if no match found.
@@ -512,72 +625,93 @@ function tes3uiElement:getTopLevelMenu() end
 function tes3uiElement:getTopLevelParent() end
 
 --- Restores the menu's position and size information from the Morrowind.ini file. This may only be called on top-level parents.
+--- @return boolean success True if the menu was restored.
 function tes3uiElement:loadMenuPosition() end
 
 --- Copies this element to a new parent, then destroys this element. This function can have unintended consequences. The specifics of what exact elements are being copied is important.
---- @param to tes3uiElement Where to create the copy.
+--- @param params tes3uiElement.move.params This table accepts the following values:
+--- 
+--- `to`: tes3uiElement — Where to create the copy.
 --- @return tes3uiElement copy The created copy.
-function tes3uiElement:move(to) end
+function tes3uiElement:move(params) end
+
+---Table parameter definitions for `tes3uiElement.move`.
+--- @class tes3uiElement.move.params
+--- @field to tes3uiElement Where to create the copy.
 
 --- Sets an `event` handler, which can add or override an existing event handler. The use of `registerBefore` or `registerAfter` is recommended if you do not want to replace the existing event handler. The eventID can be a standard `event` name, or an event specific to an element class. These can be accessed through [`tes3.uiEvent`](https://mwse.github.io/MWSE/references/ui-events/) for convenience. The callback receives an argument with the event data. See below for details.
 --- 
 --- The original Morrowind callback is captured and can be invoked with the `forwardEvent` method on the event argument. If there is an existing Lua callback, it is replaced.
 --- 
---- 	Standard events:
---- 		**mouseLeave**
---- 			Mouse cursor moving outside an element. Triggers once.
---- 		**mouseOver**
---- 			Mouse cursor moving over an element. Triggers once.
---- 		**mouseDown**
---- 			Left mouse button down over an element.
---- 		**mouseClick**
---- 			Left mouse button up over an element, after a mouseDown over the element.
---- 		**mouseScrollUp**
---- 			..
---- 		**mouseScrollDown**
---- 			Mouse wheel scrolling.
---- 		**mouseDoubleClick**
---- 			Standard double-click.
---- 		**mouseStillIdle**
---- 			Mouse cursor positioned outside an element. Triggers every frame.
---- 		**mouseStillOver**
---- 			Mouse cursor positioned over an element. Triggers every frame.
---- 		**mouseStillPressed**
---- 			Mouse cursor positioned over an element, after a mouseDown over the element. Triggers every frame.
---- 		**mouseStillPressedOutside**
---- 			Apparently not working in the engine. Mouse cursor positioned outside an element, after a mouseDown over the element. Triggers every frame.
---- 		**mouseRelease**
---- 			Left mouse button up over an element.
---- 		**keyPress**
---- 			A raw key press.
---- 		**keyEnter**
---- 			The Return key is pressed.
---- 		**help**
---- 			On mouseover, but also marking the element as having a tooltip. Create a tooltip within the callback using the `tes3ui.createTooltipMenu` function.
---- 		**focus**
---- 			When a menu is clicked on, and moved on top of other menus.
---- 		**unfocus**
---- 			Just before another menu is clicked on, or a widget in that menu receives an event, or when the menu mode is toggled off. You may return false from this event to prevent the menu from being deselected, and to prevent leaving menu mode.
---- 		**preUpdate**
---- 			Before the menu layout is updated.
---- 		**update**
---- 			After the menu layout is updated.
---- 		**destroy**
---- 			When the UI element is destroyed, before any data or children are destroyed.
+--- Standard events:
 --- 
---- 	Widget-specific events:
---- 		Slider:
---- 			**PartScrollBar_changed**
---- 				Triggers on value change; moving the slider is not enough if the value is the same.
+--- * **mouseLeave**
+--- 	Mouse cursor moving outside an element. Triggers once.
+--- * **mouseOver**
+--- 	Mouse cursor moving over an element. Triggers once.
+--- * **mouseDown**
+--- 	Left mouse button down over an element.
+--- * **mouseClick**
+--- 	Left mouse button up over an element, after a mouseDown over the element.
+--- * **mouseScrollUp**
+--- 	Mouse wheel scrolling.
+--- * **mouseScrollDown**
+--- 	Mouse wheel scrolling.
+--- * **mouseDoubleClick**
+--- 	Standard double-click.
+--- * **mouseStillIdle**
+--- 	Mouse cursor positioned outside an element. Triggers every frame.
+--- * **mouseStillOver**
+--- 	Mouse cursor positioned over an element. Triggers every frame.
+--- * **mouseStillPressed**
+--- 	Mouse cursor positioned over an element, after a mouseDown over the element. Triggers every frame.
+--- * **mouseStillPressedOutside**
+--- 	Apparently not working in the engine. Mouse cursor positioned outside an element, after a mouseDown over the element. Triggers every frame.
+--- * **mouseRelease**
+--- 	Left mouse button up over an element.
+--- * **keyPress**
+--- 	A raw key press.
+--- * **keyEnter**
+--- 	The Return key is pressed.
+--- * **help**
+--- 	On mouseover, but also marking the element as having a tooltip. Create a tooltip within the callback using the `tes3ui.createTooltipMenu` function.
+--- * **focus**
+--- 	When a menu is clicked on, and moved on top of other menus.
+--- * **unfocus**
+--- 	Just before another menu is clicked on, or a widget in that menu receives an event, or when the menu mode is toggled off. You may return false from this event to prevent the menu from being deselected, and to prevent leaving menu mode.
+--- * **preUpdate**
+--- 	Before the menu layout is updated.
+--- * **update**
+--- 	After the menu layout is updated.
+--- * **destroy**
+--- 	When the UI element is destroyed, before any data or children are destroyed.
 --- 
+--- Widget-specific events:
 --- 
---- Event forwarding
---- -------------------------------------------------------------------------------
+--- * Slider:
+--- 	* **PartScrollBar_changed**
+--- 		Triggers on value change; moving the slider is not enough if the value is the same.
+--- * Cycle Button:
+--- 	* **valueChanged**
+--- 		Triggers after the selected `index` has been changed.
+--- * Text Input:
+--- 	* **textCleared**
+--- 		Triggers after the text has been cleared by the user in text input widgets that have `placeholderText` set.
+--- 	* **textUpdated**
+--- 		Triggers after the text of the text input has changed.
+--- * Color Picker:
+--- 	* **colorChanged**
+--- 		Triggers after new color was chosen in the color picker.
+--- ***
 --- 
---- The original Morrowind event handler is saved when you first register an event. It may be optionally invoked with the `forwardEvent` method.  Note that handler may or may not destroy the event widget or the menu, so you should know how it behaves before accessing any elements after a callback.
+--- #### Event forwarding
+--- 
+--- The original Morrowind event handler is saved when you first register an event. It may be optionally invoked with the `forwardEvent` method. Note that handler may or may not destroy the event widget or the menu, so you should know how it behaves before accessing any elements after a callback.
 --- 
 --- **Example**
---- ```Lua
+--- ```lua
+--- ---@param e tes3uiEventData
+--- ---@return boolean? block
 --- local function onClick(e)
 --- 	-- pre-event code
 --- 	e.source:forwardEvent(e)
@@ -585,54 +719,61 @@ function tes3uiElement:move(to) end
 --- end
 --- 
 --- local button = menu:findChild("MenuExample_Ok")
---- button:register("mouseClick", onClick)
+--- button:register(tes3.uiEvent.mouseClick, onClick)
 --- ```
 --- 
---- Event handler
---- -------------------------------------------------------------------------------
+--- ***
 --- 
---- The standard type signature for events.
+--- #### Event handler
 --- 
---- 	`boolean`_ eventHandler(**EventData** e)
---- 		Returns: `optional`
---- 			Returning `false` may cancel an interaction for certain events. e.g. unfocus
+--- The standard type signature for the event handler function:
 --- 
---- 		EventData:
---- 			**source** (`Element`_)
---- 				The source element of the event.
+--- eventHandler (fun(e: [tes3uiEventData](https://mwse.github.io/MWSE/types/tes3uiEventData/)): boolean?) Returning `false` may cancel an interaction for certain events. e.g. unfocus.
 --- 
---- 			**id** (`number`_)
---- 				The numeric id of the event type.
+--- EventData:
 --- 
---- 			**widget** (`Element`_)
---- 				The widget element that the source belongs to, if the element is a sub-part of a widget. May not be accurate if the element is not a sub-part.
+--- * **source** ([tes3uiElement](https://mwse.github.io/MWSE/types/tes3uiElement/))
+--- 	The source element of the event.
+--- * **forwardSource** ([tes3uiElement](https://mwse.github.io/MWSE/types/tes3uiElement/))
+--- 	No description yet available.
+--- * **id** (`number`)
+--- 	The numeric id of the event type.
+--- * **widget** ([tes3uiElement](https://mwse.github.io/MWSE/types/tes3uiElement/))
+--- 	The widget element that the source belongs to, if the element is a sub-part of a widget. May not be accurate if the element is not a sub-part.
+--- * **data0** (`number`)
+--- 	Event-specific raw data values. For mouse events, these are the screen X and Y coordinates of the pointer. For keyboard events, data0 is the scancode.
+--- * **data1** (`number`)
+--- 	See *data0* description.
+--- * **relativeX** (`number`)
+--- 	For mouse events only. X and Y coordinates of the pointer relative to the top-left of the element.
+--- * **relativeY** (`number`)
+--- 	See *relativeX* description.
 --- 
---- 			**data0** (`number`_)
---- 				..
 --- 
---- 			**data1** (`number`_)
---- 				Event-specific raw data values. For mouse events, these are the screen X and Y coordinates of the pointer. For keyboard events, data0 is the `scan code`_.
+--- !!! Note
+--- 	When a UI element is destroyed, you don't have to manually unregister your custom event handlers. The engine does it automatically.
 --- 
---- 			**relativeX** (`number`_)
---- 				..
---- 
---- 			**relativeY** (`number`_)
---- 				For mouse events only. X and Y coordinates of the pointer relative to the top-left of the element.
---- @param eventID string The event id. Maps to values in [`tes3.uiEvent`](https://mwse.github.io/MWSE/references/ui-events/).
---- @param callback function The callback function.
+--- @param eventID tes3.uiEvent The UI event id. Maps to values in [`tes3.uiEvent`](https://mwse.github.io/MWSE/references/ui-events/).
+--- @param callback integer|fun(e: tes3uiEventData): boolean? The callback function. Returning `false` from this function may cancel an interaction for certain events, such as unfocus.
 function tes3uiElement:register(eventID, callback) end
 
 --- Sets an `event` handler to run after any existing event handler on the element. Can be any event usable with `register`. The callback receives an argument with the event data. See `register` for details.
---- @param eventID string The event id.
---- @param callback function The callback function.
-function tes3uiElement:registerAfter(eventID, callback) end
+--- @param eventID tes3.uiEvent The event id. Maps to values in [`tes3.uiEvent`](https://mwse.github.io/MWSE/references/ui-events/).
+--- @param callback integer|fun(e: tes3uiEventData): boolean? The callback function.
+--- @param priority integer? *Default*: `0`. The priority of the event, relative to other register-aftered events.
+function tes3uiElement:registerAfter(eventID, callback, priority) end
 
 --- Sets an `event` handler to run before any existing event handler on the element. Can be any event usable with `register`. The callback receives an argument with the event data. See `register` for details.
---- @param eventID string The event id.
---- @param callback function The callback function.
-function tes3uiElement:registerBefore(eventID, callback) end
+--- @param eventID tes3.uiEvent The event id. Maps to values in [`tes3.uiEvent`](https://mwse.github.io/MWSE/references/ui-events/).
+--- @param callback integer|fun(e: tes3uiEventData): boolean? The callback function.
+--- @param priority integer? *Default*: `0`. The priority of the event, relative to other register-befored events.
+function tes3uiElement:registerBefore(eventID, callback, priority) end
 
---- Moves the layout order of the children of this element. `count` elements are taken from starting child `Element`_ or index (0-based) `moveFrom`, and moved before the child `Element`_ or index (0-based) `insertBefore`. If `count` is -1, all children after `moveFrom` are moved. If any index is a negative number, then the index represents a distance from the end of the child list.
+--- Properties are extra variables attached to an element. Morrowind uses these to bind variables to the UI, and they can be useful for element class-specific properties. This function removes a previously existing property.
+--- @param property number|string The property to set.
+function tes3uiElement:removeProperty(property) end
+
+--- Moves the layout order of the children of this element. `count` elements are taken from starting child `Element` or index (0-based) `moveFrom`, and moved before the child `Element` or index (0-based) `insertBefore`. If `count` is -1, all children after `moveFrom` are moved. If any index is a negative number, then the index represents a distance from the end of the child list.
 --- 
 --- Returns `true` if the operation succeeded, or `false` if at least one argument was invalid.
 --- @param insertBefore tes3uiElement|number The insertion point (or its 0-based child index).
@@ -650,6 +791,8 @@ function tes3uiElement:saveMenuPosition() end
 function tes3uiElement:setLuaData(key, value) end
 
 --- Properties are extra variables attached to an element. Morrowind uses these to bind variables to the UI, and they can be useful for element class-specific properties. This function sets a property to a boolean value.
+---
+--- [Examples available in online documentation](https://mwse.github.io/MWSE/types/tes3uiElement/#setpropertybool).
 --- @param property number|string The property to set.
 --- @param value boolean The value to set.
 function tes3uiElement:setPropertyBool(property, value) end
@@ -680,7 +823,7 @@ function tes3uiElement:setPropertyObject(property, value) end
 function tes3uiElement:setPropertyProperty(property, value) end
 
 --- Reorders the element's children given a sorting function.
---- @param sortFunction function The function to sort with. Like most sorting functions, this is given two arguments to compare.
+--- @param sortFunction fun(a: tes3uiElement, b: tes3uiElement): boolean The function to sort with. Like most sorting functions, this is given two arguments to compare.
 function tes3uiElement:sortChildren(sortFunction) end
 
 --- Triggers a UI event on an element, either using supplied event data, or by constructing new event data using `eventName`. `eventName` is the same as used in `register`.
@@ -688,22 +831,22 @@ function tes3uiElement:sortChildren(sortFunction) end
 function tes3uiElement:triggerEvent(eventID) end
 
 --- Unregisters an `event` handler.
---- @param eventID string The event id.
+--- @param eventID tes3.uiEvent The event id.
 --- @return boolean wasUnregistered No description yet available.
 function tes3uiElement:unregister(eventID) end
 
 --- Unregisters a function previously registered using `:registerAfter`.
---- @param eventID string The event id.
---- @param callback function The callback function.
+--- @param eventID tes3.uiEvent The event id.
+--- @param callback integer|fun(e: tes3uiEventData): boolean? The callback function.
 --- @return boolean wasUnregistered No description yet available.
 function tes3uiElement:unregisterAfter(eventID, callback) end
 
 --- Unregisters a function previously registered using `:registerBefore`.
---- @param eventID string The event id.
---- @param callback function The callback function.
+--- @param eventID tes3.uiEvent The event id.
+--- @param callback integer|fun(e: tes3uiEventData): boolean? The callback function.
 --- @return boolean wasUnregistered No description yet available.
 function tes3uiElement:unregisterBefore(eventID, callback) end
 
---- Updates a menu's element layout and all child elements. Needs to be called on a top level menu when any elements contained in it are added, moved or resized.
+--- Updates a menu's element layout and all child elements. Needs to be called on a top level menu when any elements contained in it are added, moved or resized. e.g. `menu:updateLayout()` or `element:getTopLevelMenu():updateLayout()`
 function tes3uiElement:updateLayout() end
 

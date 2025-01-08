@@ -3,10 +3,9 @@
 #include "NIColor.h"
 #include "NIQuaternion.h"
 
-namespace TES3 {
-	constexpr double MATH_PI = 3.14159265358979323846;
-	constexpr double MATH_PI_2 = MATH_PI / 2;
+#include "MathUtil.h"
 
+namespace TES3 {
 	//
 	// Vector2
 	//
@@ -69,6 +68,25 @@ namespace TES3 {
 		return str;
 	}
 
+	float Vector2::distance(const Vector2* vec2) const {
+		float dx = x - vec2->x;
+		float dy = y - vec2->y;
+		return sqrt(dx * dx + dy * dy);
+	}
+
+	
+	float Vector2::distanceChebyshev(const Vector2* vec2) const {
+		float dx = fabs(x - vec2->x);
+		float dy = fabs(y - vec2->y);
+		return std::max(dx, dy);
+	}
+
+	float Vector2::distanceManhattan(const Vector2* vec2) const {
+		float dx = fabs(x - vec2->x);
+		float dy = fabs(y - vec2->y);
+		return dx + dy;
+	}
+
 	std::string Vector2::toString() const {
 		std::ostringstream ss;
 		ss << std::fixed << std::setprecision(2) << std::dec << *this;
@@ -91,7 +109,7 @@ namespace TES3 {
 
 	bool Vector2::normalize() {
 		float len = length();
-		if (len > 0.0f) {
+		if (len > mwse::math::M_NORMALIZE_EPSILON) {
 			x = x / len;
 			y = y / len;
 			return true;
@@ -110,6 +128,13 @@ namespace TES3 {
 	//
 	// Vector3
 	//
+
+	const Vector3 Vector3::UNIT_X = { 1.0f, 0.0f, 0.0f };
+	const Vector3 Vector3::UNIT_NEG_X = { -1.0f, 0.0f, 0.0f };
+	const Vector3 Vector3::UNIT_Y = { 0.0f, 1.0f, 0.0f };
+	const Vector3 Vector3::UNIT_NEG_Y = { 0.0f, -1.0f, 0.0f };
+	const Vector3 Vector3::UNIT_Z = { 0.0f, 0.0f, 1.0f };
+	const Vector3 Vector3::UNIT_NEG_Z = { 0.0f, 0.0f, -1.0f };
 
 	Vector3::Vector3() :
 		x(0.0f),
@@ -188,8 +213,16 @@ namespace TES3 {
 		return Vector3(x + vec3.x, y + vec3.y, z + vec3.z);
 	}
 
+	Vector3 Vector3::operator+(const float value) const {
+		return Vector3(x + value, y + value, z + value);
+	}
+
 	Vector3 Vector3::operator-(const Vector3& vec3) const {
 		return Vector3(x - vec3.x, y - vec3.y, z - vec3.z);
+	}
+
+	Vector3 Vector3::operator-(const float value) const {
+		return Vector3(x - value, y - value, z - value);
 	}
 
 	Vector3 Vector3::operator-() const {
@@ -265,8 +298,32 @@ namespace TES3 {
 		return sqrt(dz * dz + dx * dx + dy * dy);
 	}
 
+	float Vector3::distanceChebyshev(const Vector3* vec3) const {
+		float dx = fabs(x - vec3->x);
+		float dy = fabs(y - vec3->y);
+		float dz = fabs(z - vec3->z);
+		return std::max(std::max(dx, dy), dz);
+	}
+
+	float Vector3::distanceManhattan(const Vector3* vec3) const {
+		float dx = fabs(x - vec3->x);
+		float dy = fabs(y - vec3->y);
+		float dz = fabs(z - vec3->z);
+		return dx + dy + dz;
+	}
+
+	float Vector3::distanceXY(const Vector3* vec3) const {
+		float dx = x - vec3->x;
+		float dy = y - vec3->y;
+		return sqrt(dx * dx + dy * dy);
+	}
+
 	float Vector3::angle(const Vector3* v) const {
-		return acosf(dotProduct(v) / (length() * v->length()));
+		// Numerically stable version, from Kahan.
+		// Avoids an issue where the dot product is marginally out of domain for acos.
+		auto a_unit = normalized();
+		auto b_unit = v->normalized();
+		return 2.0f * atan2f((a_unit - b_unit).length(), (a_unit + b_unit).length());
 	}
 
 	float Vector3::length() const {
@@ -280,17 +337,19 @@ namespace TES3 {
 	}
 
 	bool Vector3::normalize() {
-		float len = length();
-		if (len > 0.0f) {
+		const auto len = length();
+		if (len > mwse::math::M_NORMALIZE_EPSILON) {
 			x = x / len;
 			y = y / len;
 			z = z / len;
 			return true;
 		}
-		x = 0;
-		y = 0;
-		z = 0;
-		return false;
+		else {
+			x = 0.0f;
+			y = 0.0f;
+			z = 0.0f;
+			return false;
+		}
 	}
 
 	Vector3 Vector3::normalized() const {
@@ -378,6 +437,30 @@ namespace TES3 {
 		return *this;
 	}
 
+	float Vector4::distance(const Vector4* vec4) const {
+		float dx = x - vec4->x;
+		float dy = y - vec4->y;
+		float dz = z - vec4->z;
+		float dw = w - vec4->w;
+		return sqrt(dz * dz + dw * dw + dx * dx + dy * dy);
+	}
+
+	float Vector4::distanceChebyshev(const Vector4* vec4) const {
+		float dx = fabs(x - vec4->x);
+		float dy = fabs(y - vec4->y);
+		float dz = fabs(z - vec4->z);
+		float dw = fabs(w - vec4->w);
+		return std::max(std::max(dx, dy), std::max(dz, dw));
+	}
+
+	float Vector4::distanceManhattan(const Vector4* vec4) const {
+		float dx = fabs(x - vec4->x);
+		float dy = fabs(y - vec4->y);
+		float dz = fabs(z - vec4->z);
+		float dw = fabs(w - vec4->w);
+		return dx + dy + dz + dw;
+	}
+
 	float Vector4::length() const {
 		return sqrt(x * x + y * y + z * z + w * w);
 	}
@@ -390,7 +473,7 @@ namespace TES3 {
 	const auto TES3_Matrix33_addMatrix = reinterpret_cast<Matrix33 * (__thiscall*)(Matrix33*, Matrix33*, const Matrix33*)>(0x6E7F60);
 	const auto TES3_Matrix33_subtractMatrix = reinterpret_cast<Matrix33 * (__thiscall*)(Matrix33*, Matrix33*, const Matrix33*)>(0x6E8000);
 	const auto TES3_Matrix33_multiplyMatrix = reinterpret_cast<Matrix33 * (__thiscall*)(Matrix33*, Matrix33*, const Matrix33*)>(0x6E80A0);
-	const auto TES3_Matrix33_multiplyVector = reinterpret_cast<Vector3 * (__thiscall*)(Matrix33*, Vector3*, const Vector3*)>(0x6E8230);
+	const auto TES3_Matrix33_multiplyVector = reinterpret_cast<Vector3 * (__thiscall*)(const Matrix33*, Vector3*, const Vector3*)>(0x6E8230);
 	const auto TES3_Matrix33_multiplyScalar = reinterpret_cast<Matrix33 * (__thiscall*)(Matrix33*, Matrix33*, float)>(0x6E81B0);
 
 	const auto TES3_Matrix33_toIdentity = reinterpret_cast<void(__thiscall*)(Matrix33*)>(0x6E7CF0);
@@ -403,6 +486,7 @@ namespace TES3 {
 	const auto TES3_Matrix33_toEulerXYZ = reinterpret_cast<bool(__thiscall*)(const Matrix33*, float*, float*, float*)> (0x6E8C50);
 
 	const auto TES3_Matrix33_transpose = reinterpret_cast<Matrix33 * (__thiscall*)(Matrix33*, Matrix33*)> (0x6E8420);
+	const auto TES3_Matrix33_transposeMult = reinterpret_cast<Vector3 * (__cdecl*)(Vector3*, const Vector3*, const Matrix33*)> (0x6E8290);
 	const auto TES3_Matrix33_inverseRaw = reinterpret_cast<bool(__thiscall*)(const Matrix33*, Matrix33*)> (0x6E82F0);
 	const auto TES3_Matrix33_inverse = reinterpret_cast<Matrix33 * (__thiscall*)(const Matrix33*, Matrix33*)> (0x6E83E0);
 
@@ -466,7 +550,7 @@ namespace TES3 {
 		return result;
 	}
 
-	Vector3 Matrix33::operator*(const Vector3& vector) {
+	Vector3 Matrix33::operator*(const Vector3& vector) const {
 		Vector3 result;
 		TES3_Matrix33_multiplyVector(this, &result, &vector);
 		return result;
@@ -545,6 +629,12 @@ namespace TES3 {
 		return result;
 	}
 
+	Vector3 Matrix33::transposeMult(const Vector3& vector) const {
+		Vector3 result;
+		TES3_Matrix33_transposeMult(&result, &vector, this);
+		return result;
+	}
+
 	Matrix33 Matrix33::invert() const {
 		Matrix33 result;
 		TES3_Matrix33_inverse(this, &result);
@@ -588,8 +678,8 @@ namespace TES3 {
 		*y = asin(m2.x);
 		*z = 0;
 
-		if (*y < MATH_PI_2) {
-			if (*y > -MATH_PI_2) {
+		if (*y < mwse::math::M_PI_2) {
+			if (*y > -mwse::math::M_PI_2) {
 				*z = -atan2(m1.x, m0.x);
 				*x = -atan2(m2.y, m2.z);
 				return true;
@@ -632,6 +722,25 @@ namespace TES3 {
 	Vector3 Matrix33::getUpVector() {
 		return Vector3(m0.z, m1.z, m2.z);
 	}
+
+	void Matrix33::lookAt(const Vector3& direction, const Vector3& worldUp) {
+		const auto forward = direction.normalized();
+		auto left = worldUp.crossProduct(&forward);
+		if (left.dotProduct(&left) < mwse::math::M_NORMALIZE_EPSILON) {
+			left = forward.crossProduct(&Vector3::UNIT_NEG_Y);
+		}
+		left.normalize();
+		const auto up = forward.crossProduct(&left);
+		m0.x = -left.x;
+		m1.x = -left.y;
+		m2.x = -left.z;
+		m0.y = forward.x;
+		m1.y = forward.y;
+		m2.y = forward.z;
+		m0.z = up.x;
+		m1.z = up.y;
+		m2.z = up.z;
+	};
 
 	//
 	// Matrix44

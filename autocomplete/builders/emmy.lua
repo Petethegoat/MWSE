@@ -15,9 +15,9 @@ lfs.remakedir(lfs.join(metaFolder, "class"))
 lfs.remakedir(lfs.join(metaFolder, "event"))
 
 -- Base containers to hold our compiled data.
-local globals = {}
-local classes = {}
-local events = {}
+local globals = {}	---@type packageLib[]
+local classes = {}	---@type packageClass[]
+local events = {}	---@type packageEvent[]
 
 
 --
@@ -26,22 +26,26 @@ local events = {}
 
 common.log("Definitions folder: %s", common.pathDefinitions)
 
+---@param package package
+---@return string
 local function getPackageLink(package)
 	local tokens = { common.urlBase, package.key }
 
-	if (package.type == "class") then
-		tokens = { common.urlBase, "types", package.key }
-	elseif (package.type == "class") then
-		tokens = { common.urlBase, "apis", package.namespace }
-	elseif (package.type == "event") then
-		tokens = { common.urlBase, "events", package.key }
-	elseif (package.parent) then
+	if (not package.parent) then
+		if (package.type == "class") then
+			tokens = { common.urlBase, "types", package.key }
+		elseif (package.type == "function") then
+			tokens = { common.urlBase, "apis", package.namespace }
+		elseif (package.type == "event") then
+			tokens = { common.urlBase, "events", package.key }
+		end
+	else
 		local parentType = package.parent.type
 		if (parentType == "lib") then
 			local token = string.gsub("#" .. package.namespace, "%.", "")
 			tokens = { common.urlBase, "apis", package.parent.namespace, token:lower() }
 		elseif (parentType == "class") then
-			tokens = { common.urlBase, "types", package.parent.key, "#" .. package.key }
+			tokens = { common.urlBase, "types", package.parent.key, "#" .. package.key:lower() }
 		end
 	end
 
@@ -50,10 +54,10 @@ end
 
 --- Only write table when necessary: for library packages or classes that
 --- have one or more methods or functions. This the avoids creation of tables
---- in the global namespace for virtual types - types that only existent
+--- in the global namespace for virtual types - types that only exist
 --- in the annotations.
----@param package packageClass
----@return boolean
+--- @param package packageClass|packageLib|package
+--- @return boolean
 local function shouldCreateTable(package)
 	return (
 		package.type == "lib" or
@@ -65,28 +69,63 @@ local function shouldCreateTable(package)
 	)
 end
 
+---@param package package
+---@param file file*
 local function writeExamples(package, file)
 	if (package.examples) then
 		file:write(string.format("---\n--- [Examples available in online documentation](%s).\n", getPackageLink(package)))
 	end
 end
 
+---@param str string
+---@return string
 local function formatLineBreaks(str)
-	return string.gsub(str, "\n", "\n--- ")
+	-- Wrapping it in parentheses to ensure only one value gets returned
+	return (string.gsub(str, "\n", "\n--- "))
 end
 
+---@param description string
+---@return string
 local function formatDescription(description)
 	return "--- " .. formatLineBreaks(description)
 end
 
+--- @param types string[]
+local function insertNil(types)
+	for i, type in ipairs(types) do
+		if type == "nil" then
+			return
+		end
+		if type:startswith("fun(") then
+			-- If the type ends with "|fun(): someReturnType", don't append nil
+			-- at the end. That won't make the argument optional, but will
+			-- change the type of the function's return value
+			-- Instead, we'll insert `nil` right before `fun(...):...`, so that
+			-- the full type will look like `...|nil|fun(...):...|...`
+			table.insert(types, i, "nil")
+			return
+		end
+	end
+	table.insert(types, "nil")
+end
+
+---@param type string?
+---@param package package
+---@return string?
 local function getAllPossibleVariationsOfType(type, package)
 	if (not type) then
 		return nil
 	end
 
 	if (type:startswith("table<")) then
-		local keyType, valueType = type:match("table<(.+), (.+)>")
-		return string.format("table<%s, %s>", getAllPossibleVariationsOfType(keyType, package), getAllPossibleVariationsOfType(valueType, package))
+		local keyType, valueType, other = type:match("table<(.+), (.+)>(.*)")
+		other = getAllPossibleVariationsOfType(other:sub(2), package)
+		return string.format("table<%s, %s>%s%s",
+			getAllPossibleVariationsOfType(keyType, package),
+			getAllPossibleVariationsOfType(valueType, package),
+			other ~= "" and "|" or "",
+			other
+		)
 	end
 
 	local types = {}
@@ -108,33 +147,32 @@ local function getAllPossibleVariationsOfType(type, package)
 
 	if (package.optional or package.default ~= nil) then
 		-- If we only have one type, just add ? to it.
-		if (#types == 1) then
+		if (#types == 1 and (not types[1]:startswith("fun("))) then
 			if (not types[1]:endswith("?")) then
 				types[1] = types[1] .. "?"
 			end
 		else
 			-- Otherwise add `nil` to the list if it isn't already there.
-			if (not table.find(types, "nil")) then
-				table.insert(types, "nil")
-			end
+			insertNil(types)
 		end
 	end
 
 	return table.concat(types, "|")
 end
 
+---@param package packageFunction
+---@return string[]
 local function getParamNames(package)
 	local params = {}
 	for _, param in ipairs(package.arguments or {}) do
-		if (param.type == "variadic") then
-			table.insert(params, "...")
-		else
-			table.insert(params, param.name or "unknown")
-		end
+		table.insert(params, param.name or "unknown")
 	end
 	return params
 end
 
+---@param package packageFunction
+---@param file file*
+---@param namespaceOverride string?
 local function writeFunction(package, file, namespaceOverride)
 	file:write(formatDescription(common.getDescriptionString(package)) .. "\n")
 	writeExamples(package, file)
@@ -160,11 +198,11 @@ local function writeFunction(package, file, namespaceOverride)
 				description = description .. string.format("\n\n`%s`: %s — %s", tableArgument.name or "unknown", getAllPossibleVariationsOfType(tableArgument.type, tableArgument) or "any", formatLineBreaks(common.getDescriptionString(tableArgument)))
 			end
 		end
-		if (argument.type == "variadic") then
-			file:write(string.format("--- @param ... %s %s\n", getAllPossibleVariationsOfType(argument.variadicType, argument) or "any?", formatLineBreaks(description)))
-		else
-			file:write(string.format("--- @param %s %s %s\n", argument.name or "unknown", getAllPossibleVariationsOfType(type, argument), formatLineBreaks(description)))
-		end
+		file:write(string.format("--- @param %s %s %s\n",
+			argument.name or "unknown",
+			getAllPossibleVariationsOfType(type, argument) or "any",
+			formatLineBreaks(description))
+		)
 	end
 
 	for _, returnPackage in ipairs(common.getConsistentReturnValues(package) or {}) do
@@ -202,6 +240,8 @@ common.compilePath(lfs.join(common.pathDefinitions, "events", "standard"), event
 -- Building
 --
 
+---@param className string
+---@return string
 local function buildParentChain(className)
 	local package = assert(classes[className])
 	if (package.inherits) then
@@ -210,22 +250,75 @@ local function buildParentChain(className)
 	return className
 end
 
-local function buildExternalRequires(package, file)
-	local fileBlacklist = {
-		["init"] = true,
-	}
-	local directory = lfs.join(common.pathAutocomplete, "..", "misc", "package", "Data Files", "MWSE", "core", "lib", package.key)
-	for entry in lfs.dir(directory) do
-		local extension = entry:match("[^.]+$")
-		if (extension == "lua") then
-			local filename = entry:match("[^/]+$"):sub(1, -1 * (#extension + 2))
-			if (not fileBlacklist[filename]) then
-				file:write(string.format('%s.%s = require("%s.%s")\n', package.key, filename, package.key, filename))
+--- @param namespace string Should look like: `"tes3.enumName.subEnumName"` or `"tes3.enumName"`. For example, `"tes3.activeBodyPart"` or `"tes3.dialoguePage.greeting"`.
+--- @param keys string[] These are the keys of the table to build.
+--- @param file file* The file to write to.
+local function buildAlias(namespace, keys, file)
+	file:write(string.format("--- @alias %s\n", namespace))
+	for _, key in ipairs(keys) do
+		if type(key) == "number" then
+			key = "[" .. key .. "]"
+		else
+			-- Capture "^[_%a]" matches all the letters + underscore -> valid first letter of lua identifier
+			-- Capture "[_%w]*$" matches all the letters + digits + underscore -> OK inside the key name
+			local enclose = not key:match("^[_%a][_%w]*$")
+			if enclose then
+				key = "[\"" .. key .. "\"]"
+			else
+				key = "." .. key
 			end
+		end
+		file:write(string.format("---| `%s%s`\n", namespace, key))
+	end
+	file:write("\n")
+end
+
+---@param A libraryEnumerations
+---@param B libraryEnumerations
+---@return boolean
+local function sortEnumsByFilename(A, B)
+	return A.filename:lower() < B.filename:lower()
+end
+
+---@param package package
+---@param file file*
+local function buildExternalRequires(package, file)
+	local enumMap = common.getEnumerationsMap(package.key)
+	-- Not every "lib" has enumeration tables (e.g. debuglib)
+	if not enumMap then
+		return
+	end
+
+	-- Let's sort the enumerations
+	local enums = {}
+	for filename, path in pairs(common.getEnumerationsMap(package.key)) do
+		enums[#enums + 1] = {
+			filename = filename,
+			path = path,
+		}
+	end
+	table.sort(enums, sortEnumsByFilename)
+
+	for _, data in ipairs(enums) do
+		local namespace = package.key .. "." .. data.filename
+		file:write(string.format('%s = require("%s")\n\n', namespace, namespace))
+
+		local enumerationTable = dofile(data.path)
+		local keys = table.keys(enumerationTable, true)
+		local hasSubtables = type(enumerationTable[keys[1]]) == "table"
+		if hasSubtables then
+			for subNamespace, subEnumeration in pairs(enumerationTable) do
+				local completeNamespace = namespace .. "." .. subNamespace
+				local keys = table.keys(subEnumeration, true)
+				buildAlias(completeNamespace, keys, file)
+			end
+		else
+			buildAlias(namespace, keys, file)
 		end
 	end
 end
 
+---@param package package|packageEvent|packageFunction|packageClass|packageLib|packageFunction
 local function build(package)
 	-- Load our base package.
 	common.log("Building " .. package.type .. ": " .. package.key .. " ...")
@@ -248,39 +341,75 @@ local function build(package)
 	file:write("--- @meta\n")
 
 	-- Write description.
-	if (package.type == "lib") then
-		file:write(formatDescription(common.getDescriptionString(package)) .. "\n")
-		writeExamples(package, file)
-		file:write(string.format("--- @class %slib\n", package.namespace))
-	elseif (package.type == "class") then
-		file:write(formatDescription(common.getDescriptionString(package)) .. "\n")
-		writeExamples(package, file)
-		file:write(string.format("--- @class %s%s\n", package.key, package.inherits and (" : " .. buildParentChain(package.inherits)) or ""))
-	elseif (package.type == "event") then
-		file:write(formatDescription(common.getDescriptionString(package)) .. "\n")
-		writeExamples(package, file)
-		file:write(string.format("--- @class %sEventData\n", package.key))
-	elseif (package.type == "function") then
+	if package.type == "function" then
+		---@cast package packageFunction
 		writeFunction(package, file)
+	else
+		file:write(formatDescription(common.getDescriptionString(package)) .. "\n")
+		writeExamples(package, file)
+		if package.type == "lib" then
+			file:write(string.format("--- @class %slib\n", package.namespace))
+		elseif (package.type == "class") then
+			file:write(string.format(
+				"--- @class %s%s\n",
+				package.key,
+				package.inherits and (" : " .. buildParentChain(package.inherits)) or ""
+			))
+		elseif (package.type == "event") then
+			file:write(string.format("--- @class %sEventData\n", package.key))
+		end
 	end
+	-- A map of operator metamethods supported by Lua Language Server (LLS).
+	-- We document __eq operator currently not supported by LLS. This issue
+	-- is tracked upstream at:
+	-- https://github.com/LuaLS/lua-language-server/issues/1882
+	local supportedOperators = {
+		unm = true,
+		add = true,
+		sub = true,
+		mul = true,
+		div = true,
+		idiv = true,
+		mod = true,
+		pow = true,
+		concat = true,
+		len = true,
+		-- TODO: enable once it's supported by LLS, or we could just remove this map altogether.
+		-- eq = true,
+	}
 
 	-- Write out operator overloads
-	for _, operator in ipairs(package.operators or {}) do
-		for _, overload in ipairs(operator.overloads) do
-			-- Handle unary operators
-			local rightSideType = ""
-			if overload.rightType then
-				rightSideType = string.format("(%s)", overload.rightType)
+	if (package.operators) then
+		table.sort(package.operators, function(a, b)
+			return a.key:lower() < b.key:lower()
+		end)
+		for _, operator in ipairs(package.operators) do
+			if not supportedOperators[operator.key] then
+				goto continue
 			end
+			for _, overload in ipairs(operator.overloads) do
+				-- Handle unary operators
+				local rightSideType = ""
+				if overload.rightType then
+					rightSideType = string.format("(%s)", overload.rightType)
+				end
 
-			file:write(string.format("--- @operator %s%s: %s\n", operator.key, rightSideType, overload.resultType))
+				file:write(string.format("--- @operator %s%s: %s\n", operator.key, rightSideType, overload.resultType))
+			end
+			::continue::
 		end
 	end
 
+
 	-- Write out fields.
-	for _, value in ipairs(package.values or {}) do
-		if (not value.deprecated) then
-			file:write(string.format("--- @field %s %s %s\n", value.key, getAllPossibleVariationsOfType(value.valuetype, value) or "any", formatLineBreaks(common.getDescriptionString(value))))
+	if (package.values) then
+		table.sort(package.values, function(a, b)
+			return a.key:lower() < b.key:lower()
+		end)
+		for _, value in ipairs(package.values) do
+			if (not value.deprecated) then
+				file:write(string.format("--- @field %s %s %s\n", value.key, getAllPossibleVariationsOfType(value.valuetype, value) or "any", formatLineBreaks(common.getDescriptionString(value))))
+			end
 		end
 	end
 
@@ -288,7 +417,7 @@ local function build(package)
 	if (package.type == "lib" and package.key == "event") then
 		file:write(string.format("--- @field register fun(eventId: string, callback: fun(e: table): boolean?, options: table?)\n"))
 		for _, key in ipairs(table.keys(events, true)) do
-			file:write(string.format("--- @field register fun(eventId: '\"%s\"', callback: fun(e: %sEventData): boolean?, options: table?)\n", key, key))
+			file:write(string.format("--- @field register fun(eventId: '\"%s\"', callback: (fun(e: %sEventData): boolean?), options: table?)\n", key, key))
 		end
 	end
 
@@ -317,13 +446,21 @@ local function build(package)
 	end
 
 	-- Write out functions.
-	for _, value in ipairs(package.functions or {}) do
-		writeFunction(value, file)
+	if (package.functions) then
+		table.sort(package.functions, function(a, b)
+			return a.key:lower() < b.key:lower()
+		end)
+		for _, value in ipairs(package.functions) do
+			writeFunction(value, file)
+		end
 	end
 
 	-- Write out methods.
-	if (package.type == "class") then
-		for _, value in ipairs(package.methods or {}) do
+	if (package.type == "class" and package.methods) then
+		table.sort(package.methods, function(a, b)
+			return a.key:lower() < b.key:lower()
+		end)
+		for _, value in ipairs(package.methods) do
 			writeFunction(value, file, package.key .. ":" .. value.key)
 		end
 	end
@@ -331,7 +468,6 @@ local function build(package)
 	-- Bring in external packages and build sub-libraries.
 	if (package.type == "lib") then
 		buildExternalRequires(package, file)
-
 		if (package.libs) then
 			lfs.mkdir(lfs.join(outDir, package.key))
 			for _, lib in pairs(package.libs) do

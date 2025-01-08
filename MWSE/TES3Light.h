@@ -37,8 +37,10 @@ namespace TES3 {
 		unsigned int flags; // 0x6C
 		Sound * sound; // 0x70
 
-		Light() = delete;
-		~Light() = delete;
+		static constexpr auto OBJECT_TYPE = ObjectType::Light;
+
+		Light();
+		~Light();
 
 		//
 		// Custom functions.

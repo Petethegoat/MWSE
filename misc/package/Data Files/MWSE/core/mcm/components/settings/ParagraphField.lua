@@ -1,11 +1,18 @@
+--- These types have annotations in the core\meta\ folder. Let's stop the warning spam here in the implementation.
+--- The warnings arise because each field set here is also 'set' in the annotations in the core\meta\ folder.
+--- @diagnostic disable: duplicate-set-field
+
 local Parent = require("mcm.components.settings.TextField")
+
+--- @class mwseMCMParagraphField
 local ParagraphField = Parent:new()
 
 function ParagraphField:enable()
-	self.elements.inputField.text = self.variable.value
+	self.elements.inputField.text = self:convertToLabelValue(self.variable.value)
 
+	--- @param element tes3uiElement
 	local function registerAcquireText(element)
-		element:register("mouseClick", function()
+		element:register(tes3.uiEvent.mouseClick, function()
 			tes3ui.acquireTextInput(self.elements.inputField)
 		end)
 	end
@@ -14,11 +21,14 @@ function ParagraphField:enable()
 	registerAcquireText(self.elements.textInput)
 end
 
+--- @param element tes3uiElement
 function ParagraphField:registerEnterKey(element)
-	element:register("keyEnter", function()
+	element:register(tes3.uiEvent.keyEnter, function()
 		local inputController = tes3.worldController.inputController
-		local holdingShift = (inputController:isKeyDown(tes3.scanCode.lShift) or
-		                     inputController:isKeyDown(tes3.scanCode.rShift))
+		local holdingShift = (
+			inputController:isKeyDown(tes3.scanCode.lShift) or
+			inputController:isKeyDown(tes3.scanCode.rShift)
+		)
 		if not holdingShift then
 			self:update()
 		else
@@ -27,13 +37,14 @@ function ParagraphField:registerEnterKey(element)
 	end)
 end
 
+--- @param parentBlock tes3uiElement
 function ParagraphField:makeComponent(parentBlock)
 	local border = parentBlock:createBlock()
 	border.widthProportional = 1.0
 	border.autoHeight = true
 
 	local inputField = border:createParagraphInput()
-	inputField.color = tes3ui.getPalette("disabled_color")
+	inputField.color = tes3ui.getPalette(tes3.palette.disabledColor)
 	inputField.text = string.format("(%s)", mwse.mcm.i18n("In-Game Only"))
 	inputField.widthProportional = 1.0
 	inputField.widget.lengthLimit = nil
@@ -52,19 +63,7 @@ function ParagraphField:makeComponent(parentBlock)
 	end
 
 	self:registerEnterKey(inputField)
-
-	-- mouseOvers
-	table.insert(self.mouseOvers, self.elements.label)
-	local function addMouseovers(children)
-		for _, element in ipairs(children) do
-			table.insert(self.mouseOvers, element)
-			if element.children then
-				addMouseovers(element.children)
-			end
-		end
-	end
-	addMouseovers(inputField.children)
-
+	self:insertMouseovers(border)
 end
 
 return ParagraphField

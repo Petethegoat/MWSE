@@ -9,7 +9,7 @@
 --- @field flags number Flags, dependent on the specific object type.
 --- @field fogProperty niFogProperty|nil Convenient access to this object's fog property. Setting this value to be nil will erase the property, while setting it to a valid fog property will set (or replace) it.
 --- @field materialProperty niMaterialProperty|nil Convenient access to this object's material property. Setting this value to be nil will erase the property, while setting it to a valid material property will set (or replace) it.
---- @field parent niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. The object's parent. It may not have one if it is not attached to the scene.
+--- @field parent niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. The object's parent. It may not have one if it is not attached to the scene.
 --- @field properties niPropertyLinkedList *Read-only*. The list of properties attached to this `niAVObject`.
 --- @field rotation tes3matrix33 The object's local rotation matrix.
 --- @field scale number The object's local uniform scaling factor.
@@ -32,7 +32,7 @@ function niAVObject:attachProperty(property) end
 function niAVObject:clearTransforms() end
 
 --- Update object's local transform by copying from another source.
---- @param source niAmbientLight|niBillboardNode|niCamera|niCollisionSwitch|niDirectionalLight|niNode|niParticles|niPointLight|niRotatingParticles|niSpotLight|niSwitchNode|niTextureEffect|niTriShape|tes3transform No description yet available.
+--- @param source niAmbientLight|niAutoNormalParticles|niBSAnimationNode|niBSParticleNode|niBillboardNode|niCamera|niCollisionSwitch|niDirectionalLight|niNode|niParticles|niPointLight|niRotatingParticles|niSortAdjustNode|niSpotLight|niSwitchNode|niTextureEffect|niTriShape|tes3transform No description yet available.
 function niAVObject:copyTransforms(source) end
 
 --- Detaches all the properties on the object and returns them in the table.
@@ -40,17 +40,17 @@ function niAVObject:copyTransforms(source) end
 function niAVObject:detachAllProperties() end
 
 --- Detaches and returns a property from the object which matches the given property type.
---- @param type integer The types are available in [`ni.propertyType`](https://mwse.github.io/MWSE/references/ni/property-types/) table.
+--- @param type ni.propertyType The types are available in [`ni.propertyType`](https://mwse.github.io/MWSE/references/ni/property-types/) table.
 --- @return niAlphaProperty|niFogProperty|niMaterialProperty|niStencilProperty|niTexturingProperty|niVertexColorProperty|niZBufferProperty result No description yet available.
 function niAVObject:detachProperty(type) end
 
 --- Searches this node and all child nodes recursively for a node with a name that matches the argument.
 --- @param name string No description yet available.
---- @return niAmbientLight|niBillboardNode|niCamera|niCollisionSwitch|niDirectionalLight|niNode|niParticles|niPointLight|niRotatingParticles|niSpotLight|niSwitchNode|niTextureEffect|niTriShape result No description yet available.
+--- @return niAmbientLight|niAutoNormalParticles|niBSAnimationNode|niBSParticleNode|niBillboardNode|niCamera|niCollisionSwitch|niDirectionalLight|niNode|niParticles|niPointLight|niRotatingParticles|niSortAdjustNode|niSpotLight|niSwitchNode|niTextureEffect|niTriShape result No description yet available.
 function niAVObject:getObjectByName(name) end
 
 --- Gets an attached property by property type.
---- @param type integer The types are available in [`ni.propertyType`](https://mwse.github.io/MWSE/references/ni/property-types/) table.
+--- @param type ni.propertyType The types are available in [`ni.propertyType`](https://mwse.github.io/MWSE/references/ni/property-types/) table.
 --- @return niAlphaProperty|niFogProperty|niMaterialProperty|niStencilProperty|niTexturingProperty|niVertexColorProperty|niZBufferProperty result No description yet available.
 function niAVObject:getProperty(type) end
 
@@ -90,18 +90,18 @@ function niAVObject:propagatePositionChange(args) end
 --- 
 --- @param args niAVObject.update.args? This table accepts the following values:
 --- 
---- `time`: number? — *Default*: `0`. This parameter is the time-slice for transformation and bounds updates
+--- `time`: number? — *Default*: `0`. This parameter is passed to controllers. Only needed if controllers are being updated.
 --- 
---- `controllers`: boolean? — *Default*: `false`. Update object's controllers?
+--- `controllers`: boolean? — *Default*: `false`. Update controllers before updating transforms.
 --- 
---- `bounds`: boolean? — *Default*: `true`. Update object's bounds?
+--- `children`: boolean? — *Default*: `true`. Recursively updates the children of this node.
 function niAVObject:update(args) end
 
 ---Table parameter definitions for `niAVObject.update`.
 --- @class niAVObject.update.args
---- @field time number? *Default*: `0`. This parameter is the time-slice for transformation and bounds updates
---- @field controllers boolean? *Default*: `false`. Update object's controllers?
---- @field bounds boolean? *Default*: `true`. Update object's bounds?
+--- @field time number? *Default*: `0`. This parameter is passed to controllers. Only needed if controllers are being updated.
+--- @field controllers boolean? *Default*: `false`. Update controllers before updating transforms.
+--- @field children boolean? *Default*: `true`. Recursively updates the children of this node.
 
 --- Update all attached effects. This method must be called at or above any object when dynamic effects are attached or detached from it
 function niAVObject:updateEffects() end

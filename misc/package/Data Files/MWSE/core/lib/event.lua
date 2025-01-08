@@ -28,7 +28,53 @@ local function eventSorter(a, b)
 	return eventPriorities[a] > eventPriorities[b]
 end
 
-local disableableEvents = mwseDisableableEventManager
+local disableableEvents = mwseDisableableEventManager --- @diagnostic disable-line
+
+local remapObjectTypeDenyList = {
+	[tes3.objectType.dialogueInfo] = true,
+}
+
+local function remapFilter(options, showWarnings)
+	-- We only care if we have a filter.
+	local filter = options.filter
+	if (not filter) then
+		return
+	end
+
+	-- We also only care about userdata.
+	if (type(filter) ~= "userdata") then
+		return
+	end
+
+	-- Which are tes3objects...
+	if (filter.objectType == nil) then
+		return
+	end
+
+	-- DenyList certain object types from being filtered by ID.
+	if (remapObjectTypeDenyList[filter.objectType]) then
+		return
+	end
+
+	-- References get converted to the base object. Actors and containers get converted to their base object.
+	local baseObject = filter.baseObject
+	if (baseObject and baseObject ~= filter) then
+		if (showWarnings) then
+			local givenType = table.find(tes3.objectType, filter.objectType)
+			local newType = table.find(tes3.objectType, baseObject.objectType)
+			mwse.log("Warning: Event registered to a non-base object '%s' (%s). Switched to base object '%s' (%s). Stacktrace:\n%s", filter, givenType, baseObject, newType, debug.traceback())
+		end
+		filter = baseObject
+	end
+
+	-- Ignore objects that somehow don't have an ID.
+	if (not filter.id) then
+		return
+	end
+
+	-- Finally, objects are converted to their id.
+	options.filter = filter.id:lower()
+end
 
 function this.register(eventType, callback, options)
 	-- Validate event type.
@@ -48,31 +94,24 @@ function this.register(eventType, callback, options)
 	if options.doOnce then
 		local originalCallback = callback
 		callback = function(e)
-			this.unregister(eventType, callback, options)
+			if this.isRegistered(eventType, callback, options) then
+				this.unregister(eventType, callback, options)
+			end
 			originalCallback(e)
 		end
 	end
 
-	-- Handle conversions of filters.
-	if (options.filter) then
-		local filterType = type(options.filter)
-		if (filterType == "userdata") then
-			-- References get converted to the base object.
-			if (options.filter.objectType == tes3.objectType.reference) then
-				options.filter = options.filter.object
-				mwse.log("Warning: Event registered to reference. Reference-type filtering was deprecated on 2018-12-15, and will be removed in future versions. Please update accordingly.")
-				debug.traceback()
+	-- If 'unregisterOnLoad' was set, unregister the callback on next load event.
+	if options.unregisterOnLoad then
+		this.register(tes3.event.load, function()
+			if this.isRegistered(eventType, callback, options) then
+				this.unregister(eventType, callback, options)
 			end
-
-			-- Actors and containers get converted to their base object.
-			local baseObject = options.filter.baseObject
-			if (baseObject) then
-				options.filter = baseObject
-				mwse.log("Warning: Event registered to actor clone. Switched to base object.")
-				debug.traceback()
-			end
-		end
+		end, { doOnce = true } )
 	end
+
+	-- Fix up any filters to use base object ids.
+	remapFilter(options, true)
 
 	-- Store this callback's priority.
 	eventPriorities[callback] = options.priority or 0
@@ -108,6 +147,9 @@ function this.unregister(eventType, callback, options)
 	-- Make sure options is an empty table if nothing else.
 	local options = options or {}
 
+	-- Fix up any filters to use base object ids.
+	remapFilter(options, true)
+
 	local callbacks = getEventTable(eventType, options.filter)
 	local removed = table.removevalue(callbacks, callback)
 	-- if (not removed) then
@@ -134,6 +176,9 @@ function this.isRegistered(eventType, callback, options)
 
 	-- Make sure options is an empty table if nothing else.
 	local options = options or {}
+
+	-- Fix up any filters to use base object ids.
+	remapFilter(options, true)
 
 	local callbacks = getEventTable(eventType, options.filter)
 	local found = table.find(callbacks, callback)
@@ -162,8 +207,137 @@ function this.clear(eventType, filter)
 	end
 end
 
-local function onEventError(error)
-	mwse.log("Error in event callback: %s\n%s", error, debug.traceback())
+-- Custom error notifications
+
+local errorNotifier = {
+	visible_error_limit = 8,
+	timeout_duration = 8.0,
+	eventType = nil,
+	displayed = {},
+	mod_totals = {}
+}
+
+-- Expose to MWSE
+this.errorNotifier = errorNotifier
+
+function errorNotifier.createMenu()
+	local menu = tes3ui.createMenu{ id = "MWSE:ErrorNotify", fixedFrame = true, modal = false, loadable = false }
+	menu.autoWidth = false
+	menu.autoHeight = true
+	menu.absolutePosAlignX = nil
+	menu.absolutePosAlignY = nil
+	menu.positionX = 8 - menu.maxWidth / 2
+	menu.positionY = menu.maxHeight / 2 - 8
+	menu.width = 900
+	menu.minWidth = 900
+	menu.minHeight = 0
+
+	local f = menu:getContentElement()
+	f.contentPath = nil
+	f.borderAllSides = 0
+	f.paddingAllSides = 6
+	f.flowDirection = tes3.flowDirection.topToBottom
+
+	local t = f:createLabel{ text = "Lua errors" }
+	t.color = { 0.9, 0.9, 0.9 }
+	t.borderBottom = 4
+
+	local m = f:createBlock{ id = "MWSE:ErrorNotify_Listing" }
+	m.widthProportional = 1
+	m.autoHeight = true
+	m.flowDirection = tes3.flowDirection.topToBottom
+
+	for i = 1, errorNotifier.visible_error_limit do
+		local t = m:createLabel{ text = "" }
+		t.color = { 0.8, 0.8, 0.65 }
+		t.widthProportional = 1
+		t.height = 0
+		t.borderBottom = 2
+		t.wrapText = true
+		t.visible = false
+	end
+
+	menu:updateLayout()
+	return menu
+end
+
+function errorNotifier.clearMsg()
+	errorNotifier.displayed = {}
+	errorNotifier.timer = nil
+
+	local menu = tes3ui.findMenu("MWSE:ErrorNotify")
+	if menu then
+		local list = menu:findChild("MWSE:ErrorNotify_Listing")
+		for i = 1, errorNotifier.visible_error_limit do
+			list.children[i].text = ""
+			list.children[i].visible = false
+		end
+
+		menu.visible = false
+		menu:updateLayout()
+	end
+end
+
+function errorNotifier.updateMenu()
+	local menu = tes3ui.findMenu("MWSE:ErrorNotify")
+	if not menu then
+		menu = errorNotifier.createMenu()
+	end
+
+	local list = menu:findChild("MWSE:ErrorNotify_Listing")
+	for i, display in ipairs(errorNotifier.displayed) do
+		list.children[i].text = display.msg
+		list.children[i].visible = true
+
+		if i >= errorNotifier.visible_error_limit then
+			break
+		end
+	end
+
+	-- Double re-layout to fix wrapping text heights.
+	menu.visible = true
+	menu:updateLayout()
+	menu:updateLayout()
+
+	if errorNotifier.timer then
+		errorNotifier.timer:reset()
+	else
+		errorNotifier.timer = timer.start{type = timer.real, duration = errorNotifier.timeout_duration, callback = errorNotifier.clearMsg, persist = false}
+	end
+end
+
+function errorNotifier.addMsg(errSource, modName, sourceFile, lineNum, errText)
+	local firstErrLine = string.match(errText, "([^\n]+)")
+	local errorCount = (errorNotifier.mod_totals[modName] or 0) + 1
+	errorNotifier.mod_totals[modName] = errorCount
+
+	local s = string.format("Mod: %s            Source: %s\n%s:%d > %s", modName, errSource, sourceFile, lineNum, firstErrLine)
+
+	-- Maintain list at fixed length
+	if #errorNotifier.displayed == errorNotifier.visible_error_limit then
+		table.remove(errorNotifier.displayed, 1)
+	end
+	table.insert(errorNotifier.displayed, { mod = modName, msg = s })
+
+	errorNotifier.updateMenu()
+end
+
+function errorNotifier.reportError(errSource, err)
+	if not mwseConfig.EnableLuaErrorNotifications then return end --- @diagnostic disable-line
+
+	local filePath, lineNum, errText = string.match(err, "[^:]+\\mods\\([^:]+):(%d+):%s*(.+)")
+
+	if filePath and errText then
+		local modName, sourceFile = string.match(filePath, "(.+)\\([^\\]+)")
+		if modName then
+			errorNotifier.addMsg(errSource, modName, sourceFile, lineNum, errText)
+		end
+	end
+end
+
+local function onEventError(err)
+	mwse.log("Error in event callback: %s\n%s", err, debug.traceback())
+	errorNotifier.reportError("event " .. errorNotifier.eventType, err)
 end
 
 function this.trigger(eventType, payload, options)
@@ -171,11 +345,17 @@ function this.trigger(eventType, payload, options)
 	local payload = payload or {}
 	local options = options or {}
 
+	-- Convert object filtering to base object/id filtering.
+	remapFilter(options, false)
+
 	payload.eventType = eventType
 	payload.eventFilter = options.filter
 
 	local callbacks = table.copy(getEventTable(eventType, options.filter))
 	for _, callback in pairs(callbacks) do
+		-- Inform error notifier of current eventType.
+		errorNotifier.eventType = eventType
+
 		local status, result = xpcall(callback, onEventError, payload)
 		if (status == false) then
 			result = nil
@@ -196,7 +376,8 @@ function this.trigger(eventType, payload, options)
 	-- At this point if we have a filter, we've run through the filtered events.
 	-- Fire off the unfiltered events too.
 	if (options.filter ~= nil) then
-		this.trigger(eventType, payload)
+		options.filter = nil
+		this.trigger(eventType, payload, options)
 	end
 
 	return payload

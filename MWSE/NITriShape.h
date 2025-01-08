@@ -1,9 +1,17 @@
 #pragma once
 
 #include "NIAVObject.h"
-#include "NiTriBasedGeometry.h"
+#include "NITriBasedGeometry.h"
 
 namespace NI {
+	namespace TriShapeFlags {
+		typedef unsigned short value_type;
+
+		enum TriShapeFlags {
+			SoftwareSkinningFlag = 0x200	// Added by MWSE.
+		};
+	}
+
 	struct TriShape_vTable : TriBasedGeometry_vTable {
 		void* unknown_0x9C;
 		void* unknown_0xA0;
@@ -14,11 +22,20 @@ namespace NI {
 
 	struct TriShape : TriBasedGeometry {
 
+		TriShape(TriBasedGeometryData* data);
+
 		//
 		// vTable type overwriting.
 		//
 
 		TriShapeData* getModelData() const;
+		void linkObject(NI::Stream* stream);
+
+		//
+		// Custom functions.
+		//
+
+		static Pointer<TriShape> create(unsigned short vertexCount, bool hasNormals, bool hasColors, unsigned short textureCoordSets, unsigned short triangleCount);
 
 		// Convenient access to model data.
 		nonstd::span<TES3::Vector3> getVertices() const;

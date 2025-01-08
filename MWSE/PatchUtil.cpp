@@ -1,10 +1,12 @@
 #include "PatchUtil.h"
 
-#include "mwOffsets.h"
-#include "MemoryUtil.h"
 #include "Log.h"
+#include "MemoryUtil.h"
+#include "mwOffsets.h"
 
 #include "TES3Actor.h"
+#include "TES3ActorAnimationController.h"
+#include "TES3AudioController.h"
 #include "TES3BodyPartManager.h"
 #include "TES3Cell.h"
 #include "TES3Class.h"
@@ -15,34 +17,85 @@
 #include "TES3GameFile.h"
 #include "TES3GameSetting.h"
 #include "TES3InputController.h"
+#include "TES3ItemData.h"
+#include "TES3Light.h"
 #include "TES3LoadScreenManager.h"
+#include "TES3MagicEffectInstance.h"
 #include "TES3Misc.h"
 #include "TES3MobilePlayer.h"
 #include "TES3MobManager.h"
 #include "TES3Reference.h"
 #include "TES3Script.h"
+#include "TES3Sound.h"
 #include "TES3UIElement.h"
 #include "TES3UIInventoryTile.h"
+#include "TES3UIMenuController.h"
 #include "TES3VFXManager.h"
 #include "TES3WorldController.h"
 
+#include "NICollisionSwitch.h"
 #include "NIFlipController.h"
 #include "NILinesData.h"
+#include "NIPick.h"
+#include "NISortAdjustNode.h"
+#include "NiTriShape.h"
+#include "NiTriShapeData.h"
 #include "NIUVController.h"
 
 #include "BitUtil.h"
-#include "TES3Util.h"
 #include "ScriptUtil.h"
+#include "TES3Util.h"
 
 #include "LuaManager.h"
 #include "LuaUtil.h"
 
-#include "MWSEConfig.h"
-#include "MWSEDefs.h"
 #include "BuildDate.h"
 #include "CodePatchUtil.h"
+#include "MWSEConfig.h"
+#include "MWSEDefs.h"
 
 namespace mwse::patch {
+
+#ifndef _DEBUG
+	// Release builds.
+	constexpr auto INSTALL_MINIDUMP_HOOK = true;
+#else
+	// Debug builds.
+	constexpr auto INSTALL_MINIDUMP_HOOK = false;
+#endif
+
+	const char* SafeGetObjectId(const TES3::BaseObject* object) {
+		__try {
+			return object->getObjectID();
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			return nullptr;
+		}
+	}
+
+	const char* SafeGetSourceFile(const TES3::BaseObject* object) {
+		__try {
+			return object->getSourceFilename();
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			return nullptr;
+		}
+	}
+
+	template <typename T>
+	void safePrintObjectToLog(const char* title, const T* object) {
+		if (object) {
+			auto id = SafeGetObjectId(object);
+			auto source = SafeGetSourceFile(object);
+			log::getLog() << "  " << title << ": " << (id ? id : "<memory corrupted>") << " (" << (source ? source : "<memory corrupted>") << ")" << std::endl;
+			if (id) {
+				log::prettyDump(object);
+			}
+		}
+		else {
+			log::getLog() << "  " << title << ": nullptr" << std::endl;
+		}
+	}
 
 	//
 	// Patch: Enable
@@ -98,12 +151,12 @@ namespace mwse::patch {
 		auto athletics = &TES3::DataHandler::get()->nonDynamicData->skills[TES3::SkillID::Athletics];
 
 		// If we're running, use the first progress.
-		if (mobilePlayer->movementFlags & TES3::ActorMovement::Running) {
+		if (mobilePlayer->getMovementFlagRunning()) {
 			mobilePlayer->exerciseSkill(TES3::SkillID::Athletics, athletics->progressActions[0] * worldController->deltaTime);
 		}
 
 		// If we're swimming, use the second progress.
-		if (mobilePlayer->movementFlags & TES3::ActorMovement::Swimming) {
+		if (mobilePlayer->getMovementFlagSwimming()) {
 			mobilePlayer->exerciseSkill(TES3::SkillID::Athletics, athletics->progressActions[1] * worldController->deltaTime);
 		}
 	}
@@ -554,8 +607,10 @@ namespace mwse::patch {
 
 	//
 	// Patch: Fix crash when releasing a clone of a light with no reference.
+	//        Also fix crash when the attachment scenegraph light pointer has been cleared.
 	//
-	// This is mostly useful for creating VFXs using a light object as a base.
+	// The first fix is mostly useful for creating VFXs using a light object as a base.
+	// The second fix is to prevent a crash and try to identify the cause of the cleared pointer.
 	//
 
 	TES3::Attachment* __fastcall PatchReleaseLightEntityForReference(const TES3::Reference* reference) {
@@ -563,7 +618,16 @@ namespace mwse::patch {
 			return nullptr;
 		}
 
-		return reference->getAttachment(TES3::AttachmentType::Light);
+		auto attachment = static_cast<TES3::LightAttachment*>(reference->getAttachment(TES3::AttachmentType::Light));
+
+		if (attachment && attachment->data->light == nullptr) {
+			log::getLog() << "[MWSE] Crash prevented while cleaning up light reference to object '" <<
+				reference->baseObject->objectID << "' in cell '" << reference->getCell()->getEditorName() << "'. " <<
+				"Please report this to the #mwse channel in the Morrowind Modding Community discord." << std::endl;
+			return nullptr;
+		}
+
+		return attachment;
 	}
 
 	//
@@ -707,6 +771,457 @@ namespace mwse::patch {
 	const size_t PatchUIUpdateLayoutImageContent2_size = 0x11;
 
 	//
+	// Patch: When adjusting effects mix volume, update looping audio volume correctly.
+	//
+	
+	void __fastcall PatchSetLoopingSoundBufferVolume(TES3::AudioController* audio, DWORD unused, TES3::SoundEvent* soundEvent, unsigned char volume) {
+		unsigned char adjustedVolume = (unsigned char)(float(volume) * float(soundEvent->sound->volume) / 255.0f);
+		audio->setSoundBufferVolume(soundEvent->soundBuffer, adjustedVolume);
+	}
+
+	//
+	// Patch: Add deterministic subtree ordering mode to NiSortAdjustNode. Fix cloning with no accumulator.
+	//
+
+	const auto NI_SortAdjustNode_Display = reinterpret_cast<void(__thiscall*)(NI::SortAdjustNode*, NI::Camera*)>(0x6DE030);
+	const auto NI_ClusterAccumulator_RegisterObject = reinterpret_cast<void(__thiscall*)(NI::Accumulator*, NI::AVObject*)>(0x6CF200);
+
+	void __fastcall PatchNISortAdjustNodeDisplay(NI::SortAdjustNode* node, DWORD unused, NI::Camera* camera) {
+		// Add extra sort adjust mode for accumulating a node instead of geom.
+		auto accumulator = camera->renderer->accumulator.get();
+		if (node->sortingMode == NI::SortAdjustMode::SORTING_ORDERED_SUBTREE_MWSE
+			&& accumulator != nullptr
+			&& accumulator->isInstanceOfType(NI::RTTIStaticPtr::NiAlphaAccumulator)) {
+			NI_ClusterAccumulator_RegisterObject(accumulator, node);
+		}
+		else {
+			NI_SortAdjustNode_Display(node, camera);
+		}
+	}
+
+	NI::Object* __fastcall PatchNISortAdjustNodeCloneAccumulator(NI::Accumulator* accumulator) {
+		// Only call createClone if accumulator exists.
+		return accumulator ? accumulator->vTable.asObject->createClone(accumulator) : nullptr;
+	}
+
+	//
+	// Patch: Improve error reporting by including the source mod next to object IDs in load error messages.
+	//
+
+	static char tempErrorMessageObjectID[256];
+
+	const char* __fastcall PatchGetImprovedObjectIdentifier(TES3::Object* object) {
+		const auto id = object->getObjectID();
+		const auto source = object->sourceMod ? object->sourceMod->filename : "no source";
+		std::snprintf(tempErrorMessageObjectID, sizeof(tempErrorMessageObjectID), "%s' (%s)", id, source);
+		return tempErrorMessageObjectID;
+	}
+
+	//
+	// Patch: Do not load VFX with maxAge <= 0.001f from save games.
+	//
+
+	const auto TES3_VFXManager_createFromSaveData = reinterpret_cast<TES3::VFX* (__thiscall*)(TES3::VFXManager*, TES3::PhysicalObject*, TES3::Reference*, TES3::VFXSerialized*, float)>(0x468620);
+
+	TES3::VFX* __fastcall PatchVFXManagerCreateFromSaveData(TES3::VFXManager* vfxManager, DWORD unused, TES3::PhysicalObject* effect, TES3::Reference* reference, TES3::VFXSerialized* serializedVFX, float verticalOffset) {
+		// Do not load VFX with maxAge <= 0.001f, as they are persistent and may have accumulated in saves from before these fixes.
+		if (serializedVFX->maxAge <= 0.001f) {
+			return nullptr;
+		}
+
+		return TES3_VFXManager_createFromSaveData(vfxManager, effect, reference, serializedVFX, verticalOffset);
+	}
+
+	// Patch: Land textures loading/unloading flag array overflow bug. Increase array from 500 to 4096 elements and fix bounds checks.
+
+	const unsigned short Land_LTEX_isLoaded_size = 4096;
+	bool Land_LTEX_isLoaded[Land_LTEX_isLoaded_size];
+
+	__declspec(naked) void PatchLandUnloadTexturesBoundsCheck() {
+		__asm {
+			// Replace index >= 500 and index != -1 with a single unsigned comparison against the new size.
+			cmp ax, 4096 // immediate arg = Land_LTEX_isLoaded_size
+			jnb $ + 0xAB
+			nop
+			nop
+			nop
+			nop
+			nop
+			nop
+		}
+	}
+	const size_t PatchLandUnloadTexturesBoundsCheck_size = 0x10;
+	
+	__declspec(naked) void PatchLandLoadTexturesBoundsCheck() {
+		__asm {
+			// Replace index >= 500 and index != -1 with a single unsigned comparison against the new size.
+			cmp cx, 4096 // immediate arg = Land_LTEX_isLoaded_size
+			jnb $ + 0xF5
+			nop
+			nop
+			nop
+			nop
+			nop
+			nop
+		}
+	}
+	const size_t PatchLandLoadTexturesBoundsCheck_size = 0x11;
+
+	//
+	// Patch: Fall back to reference rotation values when initializing animation controllers without a scene node.
+	// 
+	// Leaving here since the reporter couldn't reproduce the crash on a new save, but we'll want information next time this happens.
+	//
+
+	void __fastcall PatchSetAnimControllerMobile(TES3::ActorAnimationController* animController, DWORD _EDX_, TES3::MobileActor* mobile) {
+		if (mobile == nullptr) {
+			return;
+		}
+
+		// Try to get more information about this crash.
+		if (mobile->reference->getSceneGraphNode() == nullptr) {
+			log::getLog() << "[MWSE] No scene graph found when attempting to add animation controller to reference. Doing what we can with the reference. Please report this to the #mwse channel in the Morrowind Modding Community discord." << std::endl;
+			safePrintObjectToLog("Reference", mobile->reference);
+		}
+
+		// Perform overwritten code, but use getRotationMatrix to fall back to reference rotation values.
+		animController->mobileActor = mobile;
+		animController->animationData = mobile->getAnimationData();
+		animController->groundPlaneRotation = mobile->reference->getRotationMatrix();
+	}
+
+	//
+	// Patch: Log stack traces of problematic UI pointer issues.
+	//
+
+	void __cdecl PatchLogUIMemoryPointerErrors(const char* message) {
+		lua::logStackTrace("Lua traceback at time of invalid access:");
+		tes3::logErrorAndSavePoint(message);
+	}
+
+	//
+	// Patch: Respect symbolic links.
+	// 
+	// Unlike most of the Win32 API, FindFirstFileA and FindNextFileA don't respect symbolic links and
+	// instead return information about the link itself instead of its target.
+	// 
+	// This patch makes it return the file size of the target file, rather than the symlink itself (0).
+	//
+
+	static std::unordered_map<HANDLE, std::string> findFilePaths;
+	static std::recursive_mutex findFileMutex;
+
+	std::optional<std::string> getFindFilePath(HANDLE hFindFile) {
+		findFileMutex.lock();
+		const auto itt = findFilePaths.find(hFindFile);
+		if (itt == findFilePaths.end()) {
+			findFileMutex.unlock();
+			return {};
+		}
+
+		findFileMutex.unlock();
+		return itt->second;
+	}
+
+	void PatchFixSymlinkData(HANDLE hFindFile, LPWIN32_FIND_DATAA lpFindFileData) {
+		const auto path = getFindFilePath(hFindFile);
+		if (!path) {
+			return;
+		}
+
+		const auto fullPath = std::filesystem::path(path.value()) / lpFindFileData->cFileName;
+		if (!std::filesystem::exists(fullPath)) {
+			return;
+		}
+
+		const auto fileSize = std::filesystem::file_size(fullPath);
+		lpFindFileData->nFileSizeHigh = unsigned int(fileSize / std::numeric_limits<unsigned int>::max());
+		lpFindFileData->nFileSizeLow = unsigned int(fileSize);
+	}
+
+	HANDLE __stdcall PatchFindFirstFileA(LPCSTR lpFileName, LPWIN32_FIND_DATAA lpFindFileData) {
+		auto result = FindFirstFileA(lpFileName, lpFindFileData);
+		if (result == INVALID_HANDLE_VALUE) {
+			return result;
+		}
+
+		findFileMutex.lock();
+		findFilePaths[result] = std::filesystem::path(lpFileName).parent_path().string();
+		findFileMutex.unlock();
+
+		// Check to see if it resolved to a symbolic link.
+		if (lpFindFileData->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT && lpFindFileData->dwReserved0 == IO_REPARSE_TAG_SYMLINK) {
+			PatchFixSymlinkData(result, lpFindFileData);
+		}
+
+		return result;
+	}
+
+	BOOL __stdcall PatchFindNextFileA(HANDLE hFindFile, LPWIN32_FIND_DATAA lpFindFileData) {
+		auto result = FindNextFileA(hFindFile, lpFindFileData);
+		if (!result) {
+			return result;
+		}
+
+		// Check to see if it resolved to a symbolic link.
+		if (lpFindFileData->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT && lpFindFileData->dwReserved0 == IO_REPARSE_TAG_SYMLINK) {
+			PatchFixSymlinkData(hFindFile, lpFindFileData);
+		}
+
+		return result;
+	}
+
+	BOOL __stdcall PatchFindClose(HANDLE hFindFile) {
+		findFileMutex.lock();
+		const auto itt = findFilePaths.find(hFindFile);
+		if (itt != findFilePaths.end()) {
+			findFilePaths.erase(itt);
+		}
+		findFileMutex.unlock();
+
+		return FindClose(hFindFile);
+	}
+
+	//
+	// Patch: Guard against invalid light flicker/pulse updates.
+	//
+
+	const auto TES3_Light_UpdateFlickerPulse = reinterpret_cast<void(__thiscall*)(TES3::Light*, NI::Node*, float*, TES3::ItemData*)>(0x4D33D0);
+	void __fastcall PatchEntityLightFlickerPulseUpdate(TES3::Light* light, DWORD _EDX_, NI::Node* sgNode, float* flickerPhase, TES3::ItemData* itemData) {
+		if (sgNode == nullptr) {
+#if _DEBUG
+			log::getLog() << "[MWSE] Warning: Light '" << light->getObjectID() << "' attempting to update update flicker/phase without a scene graph node." << std::endl;
+#endif
+			return;
+		}
+
+		TES3_Light_UpdateFlickerPulse(light, sgNode, flickerPhase, itemData);
+	}
+
+	//
+	// Patch: Resolve node count mismatch when loading pathgrid records with missing subrecords.
+	// 
+
+	__declspec(naked) void PatchPathGridLoader() {
+		__asm {
+			pop esi
+			pop ebx
+			mov ecx, ebp
+			nop			// Replace with call
+			nop
+			nop
+			nop
+			nop
+			jmp $ + 0x15
+		}
+	}
+	const size_t PatchPathGridLoader_size = 0xE;
+
+	void __fastcall PatchPathGridLoaderCheckNodeData(TES3::PathGrid* pathGrid) {
+		// Check node count from record matches node data. Reset node count on mismatch.
+		if (pathGrid->nodeCount != pathGrid->nodes.count) {
+			log::getLog() << "[MWSE] Warning: Pathgrid in cell '" << pathGrid->parentCell->getEditorName() <<
+				"' has mismatching path node count. nodeCount=" << pathGrid->nodeCount << ", node data count=" << pathGrid->nodes.count << std::endl;
+
+			pathGrid->nodeCount = pathGrid->nodes.count;
+		}
+
+		// Perform overwritten code.
+		if (TES3::WorldController::get()->menuController->gameplayFlags & 0x800000) {
+			pathGrid->show();
+		}
+	}
+
+	//
+	// Patch: Allow bound armour function to also summon bracers and pauldrons.
+	//
+
+	const auto TES3_SwapBoundArmor = reinterpret_cast<bool (__cdecl*)(TES3::MagicEffectInstance*, const char*, const char*)>(0x465DE0);
+	const auto TES3_UI_PostAddAndEquipBoundItem = reinterpret_cast<void(__cdecl*)(TES3::Item*, TES3::ItemData*, int)>(0x5D1F00);
+
+	TES3::EquipmentStack* createEquipBoundItem(TES3::Item* item, TES3::Actor* actor, TES3::MobileActor* mobile) {
+		// Create and equip bound item. Excerpted from bound gauntlet code.
+		TES3::EquipmentStack* equipped = nullptr;
+		auto itemData = TES3::ItemData::createForBoundItem(item);
+
+		actor->inventory.addItem(mobile, item, 1, false, &itemData);
+		actor->equipItem(item, itemData, &equipped, mobile);
+		if (mobile->actorType == TES3::MobileActorType::Player) {
+			TES3_UI_PostAddAndEquipBoundItem(item, itemData, 1);
+		}
+		mobile->wearItem(item, itemData, false, false, true);
+		return equipped->canonicalCopy();
+	}
+
+	bool __cdecl PatchSwapBoundArmor(TES3::MagicEffectInstance* effectInstance, const char* armorId1, const char* armorId2) {
+		auto records = TES3::DataHandler::get()->nonDynamicData;
+
+		auto armor1 = static_cast<TES3::Armor*>(records->resolveObject(armorId1));
+		auto armor2 = armorId2 ? static_cast<TES3::Armor*>(records->resolveObject(armorId2)) : nullptr;
+
+		if (armor1 == nullptr || armor1->objectType != TES3::ObjectType::Armor) {
+			return false;
+		}
+
+		if (armor1->slot == TES3::ArmorSlot::LeftBracer) {
+			auto mobile = effectInstance->target->getAttachedMobileActor();
+			auto actor = static_cast<TES3::Actor*>(effectInstance->target->baseObject);
+			auto mcpGlovesWithBracers = mcp::getFeatureEnabled(mcp::feature::AllowGlovesWithBracers);
+
+			// Left hand.
+			// Un-equip and memorize any item in the same location.
+			auto equipLeftHand = actor->getEquippedArmorBySlot(TES3::ArmorSlot::LeftGauntlet);
+			if (!equipLeftHand) {
+				equipLeftHand = actor->getEquippedArmorBySlot(TES3::ArmorSlot::LeftBracer);
+			}
+			if (!equipLeftHand && !mcpGlovesWithBracers) {
+				equipLeftHand = actor->getEquippedClothingBySlot(TES3::ClothingSlot::LeftGlove);
+			}
+
+			if (equipLeftHand) {
+				// The original left hand item is memorized in the lastUsedArmor member.
+				effectInstance->lastUsedArmor = equipLeftHand->canonicalCopy();
+				if (equipLeftHand->object == mobile->currentEnchantedItem.object) {
+					effectInstance->lastUsedEnchItem = mobile->currentEnchantedItem.canonicalCopy();
+				}
+			}
+
+			// Create bound item and record created stack.
+			effectInstance->createdData.equipmentOrSummon = createEquipBoundItem(armor1, actor, mobile);
+
+			// Right hand.
+			if (armor2) {
+				// Un-equip and memorize any item in the same location.
+				auto equipRightHand = actor->getEquippedArmorBySlot(TES3::ArmorSlot::RightGauntlet);
+				if (!equipRightHand) {
+					equipRightHand = actor->getEquippedArmorBySlot(TES3::ArmorSlot::RightBracer);
+				}
+				if (!equipRightHand && !mcpGlovesWithBracers) {
+					equipRightHand = actor->getEquippedClothingBySlot(TES3::ClothingSlot::RightGlove);
+				}
+
+				if (equipRightHand) {
+					// The original right hand item is memorized in the lastUsedWeapon member.
+					effectInstance->lastUsedWeapon = equipRightHand->canonicalCopy();
+					if (equipRightHand->object == mobile->currentEnchantedItem.object) {
+						effectInstance->lastUsedEnchItem = mobile->currentEnchantedItem.canonicalCopy();
+					}
+				}
+
+				// Create bound item and record created stack.
+				effectInstance->createdData2 = createEquipBoundItem(armor2, actor, mobile);
+			}
+
+			return true;
+		}
+		else if (armor1->slot == TES3::ArmorSlot::LeftPauldron) {
+			auto mobile = effectInstance->target->getAttachedMobileActor();
+			auto actor = static_cast<TES3::Actor*>(effectInstance->target->baseObject);
+
+			// Left shoulder.
+			// Un-equip and memorize any item in the same location.
+			auto equipLeftPauldron = actor->getEquippedArmorBySlot(TES3::ArmorSlot::LeftPauldron);
+			if (equipLeftPauldron) {
+				// The original left side item is memorized in the lastUsedArmor member.
+				effectInstance->lastUsedArmor = equipLeftPauldron->canonicalCopy();
+				if (equipLeftPauldron->object == mobile->currentEnchantedItem.object) {
+					effectInstance->lastUsedEnchItem = mobile->currentEnchantedItem.canonicalCopy();
+				}
+			}
+
+			// Create bound item and record created stack.
+			effectInstance->createdData.equipmentOrSummon = createEquipBoundItem(armor1, actor, mobile);
+
+			// Right shoulder.
+			if (armor2) {
+				// Un-equip and memorize any item in the same location.
+				auto equipRightPauldron = actor->getEquippedArmorBySlot(TES3::ArmorSlot::RightPauldron);
+				if (equipRightPauldron) {
+					// The original right side item is memorized in the lastUsedWeapon member.
+					effectInstance->lastUsedWeapon = equipRightPauldron->canonicalCopy();
+					if (equipRightPauldron->object == mobile->currentEnchantedItem.object) {
+						effectInstance->lastUsedEnchItem = mobile->currentEnchantedItem.canonicalCopy();
+					}
+				}
+
+				// Create bound item and record created stack.
+				effectInstance->createdData2 = createEquipBoundItem(armor2, actor, mobile);
+			}
+
+			return true;
+		}
+		else {
+			// Use original code for all other slots.
+			return TES3_SwapBoundArmor(effectInstance, armorId1, armorId2);
+		}
+	}
+
+	//
+	// Patch: Modify proximity movement speed matching of AI followers to limit the speed match from going to zero on immobilized follow targets.
+	//
+
+	float __stdcall PatchGetAnimDataMovementSpeedCapped(TES3::AnimationData* animData) {
+		// Restrict speed matching to be at least 60% of base animation speed.
+		return std::max(0.6f, animData->movementSpeed);
+	}
+
+	__declspec(naked) void PatchMovementAnimSpeedMatching() {
+		__asm {
+			push eax
+			call $					// Replace with call PatchGetAnimDataMovementSpeedCapped
+			fstp [esp + 0x14]		// fst [targetMoveSpeed]
+			fld [esp + 0x10]		// fld [finalMovementSpeed]
+		}
+	}
+	const size_t PatchMovementAnimSpeedMatching_size = 0xE;
+
+	//
+	// Patch: Allow per-shape control of whether software or hardware skinning is used.
+	//
+
+	// Define a constant usable in inline asm.
+	#define Const_SoftwareSkinningFlag 0x200
+	static_assert(Const_SoftwareSkinningFlag == NI::TriShapeFlags::SoftwareSkinningFlag);
+
+	__declspec(naked) void PatchNITriBasedGeom_Ctor1() {
+		__asm {
+			movzx eax, word ptr [esp + 0x1C]	// eax = zero extended triangleCount
+			mov dword ptr [esi], 0x751268		// Set NiTriBasedGeom vtable
+			mov [esi + 0x34], eax				// Initialize triangleCount and patchRenderFlags together
+			nop
+		}
+	}
+	const size_t PatchNITriBasedGeom_Ctor1_size = 0xF;
+
+	__declspec(naked) void PatchNITriBasedGeom_Ctor2() {
+		__asm {
+			xor edx, edx
+			mov [esi + 0x34], edx				// Initialize triangleCount and patchRenderFlags together
+			nop
+		}
+	}
+	const size_t PatchNITriBasedGeom_Ctor2_size = 0x6;
+
+	const auto NI_TriBasedGeometry_CopyMembers = reinterpret_cast<void(__thiscall*)(NI::TriBasedGeometry*, NI::TriBasedGeometry*)>(0x6F15B0);
+	void __fastcall PatchNITriShapeCopyMembers(NI::TriShape* _this, DWORD _EDX_, NI::TriShape* to) {
+		NI_TriBasedGeometry_CopyMembers(_this, to);
+
+		// Ensure that if the geometry data has been deep cloned, that the render flags are copied too.
+		if (to->modelData != _this->modelData) {
+			to->getModelData()->patchRenderFlags = _this->getModelData()->patchRenderFlags;
+		}
+	}
+
+	__declspec(naked) void PatchNIDX8Renderer_RenderShape() {
+		__asm {
+			nop
+			test word ptr [esi + 0x36], Const_SoftwareSkinningFlag	// Skip hardware skinning if patchRenderFlags matches SoftwareSkinningFlag
+			__asm _emit 0x75 __asm _emit 0x19						// jnz short $ + 0x1B (assembler can't output short offsets correctly)
+		}
+	}
+	const size_t PatchNIDX8Renderer_RenderShape_size = 0x8;
+
+	//
 	// Install all the patches.
 	//
 
@@ -744,6 +1259,7 @@ namespace mwse::patch {
 		genCallEnforced(0x4BCB7E, 0x55D950, *reinterpret_cast<DWORD*>(&killCounter_save));
 #endif
 
+		// Patch: Post-simulate event just before tickClock.
 		// Patch: Don't truncate hour when advancing time past midnight.
 		// Also don't nudge time forward by small extra increments when resting.
 		auto WorldController_tickClock = &TES3::WorldController::tickClock;
@@ -917,6 +1433,10 @@ namespace mwse::patch {
 		// Patch: Always clone scene graph nodes.
 		writeValueEnforced(0x4EF9FB, BYTE(0x02), BYTE(0x00));
 
+		// Patch: Always copy all NiExtraData on clone, instead of only the first NiStringExtraData.
+		genJumpUnprotected(0x4E8295, 0x4E82BB);
+		genJumpUnprotected(0x4E82C4, 0x4E82CE);
+
 		// Patch: Update player first and third person animations when the idle flag is pausing the controller.
 		genCallUnprotected(0x41B836, reinterpret_cast<DWORD>(PatchUpdateAllIdles));
 
@@ -954,26 +1474,10 @@ namespace mwse::patch {
 		// Patch: Don't save VFX manager if there are no valid visual effects.
 		genCallEnforced(0x4BD149, 0x469CC0, reinterpret_cast<DWORD>(PatchSaveVisualEffects));
 
-		// Patch: Fix crash when releasing a clone of a light with no reference.
+		// Patch: Fix crash when releasing a clone of a light with no reference. Also fix crash when the attachment scenegraph light pointer has been cleared.
 		genCallEnforced(0x4D260C, 0x4E5170, reinterpret_cast<DWORD>(PatchReleaseLightEntityForReference));
 
-		// Patch: Cache values between dialogue filters.
-		auto Dialogue_getFilteredInfo = &TES3::Dialogue::getFilteredInfo;
-		genCallEnforced(0x40B8EE, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x4B2F51, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5290B2, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x52931A, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5BF01C, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5BF17C, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5BF25C, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5BF33C, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5BF43C, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5BF51C, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5BF62C, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5C05F7, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5C0A48, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x5C0A67, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
-		genCallEnforced(0x6004E9, 0x4B29E0, *reinterpret_cast<DWORD*>(&Dialogue_getFilteredInfo));
+		// Patch: Cache values between dialogue filters. The actual override that makes use of this cache is in LuaManager for its hooks.
 		genCallUnprotected(0x4B1646, reinterpret_cast<DWORD>(PatchDialogueFilterCacheGetDisposition), 0x6);
 		genCallUnprotected(0x4B167B, reinterpret_cast<DWORD>(PatchDialogueFilterCacheGetDisposition), 0x6);
 
@@ -988,7 +1492,8 @@ namespace mwse::patch {
 		// Patch: Set ActiveMagicEffect.isIllegalSummon correctly on loading a savegame.
 		writePatchCodeUnprotected(0x454826, (BYTE*)&PatchLoadActiveMagicEffect, PatchLoadActiveMagicEffect_size);
 
-		// Patch: Fix crash in NPC flee logic when trying to pick a random node from a pathgrid with 0 nodes.
+		// Patch: Fix crash in NPC wander and flee logic when trying to pick a random node from a pathgrid with 0 nodes.
+		genCallEnforced(0x5339D8, 0x4E2850, reinterpret_cast<DWORD>(PatchCellGetPathGridWithNodes));
 		genCallEnforced(0x549E76, 0x4E2850, reinterpret_cast<DWORD>(PatchCellGetPathGridWithNodes));
 
 		// Patch: UI element image mirroring on negative image scale.
@@ -996,6 +1501,176 @@ namespace mwse::patch {
 		writePatchCodeUnprotected(0x57DE3F, (BYTE*)&PatchUIUpdateLayoutImageContent1, PatchUIUpdateLayoutImageContent1_size);
 		writePatchCodeUnprotected(0x57E1E8, (BYTE*)&PatchUIUpdateLayoutImageContent2, PatchUIUpdateLayoutImageContent2_size);
 		genCallUnprotected(0x57E1E8 + 0x2, reinterpret_cast<DWORD>(PatchUIElementTexcoordWrite));
+
+		// Patch: When adjusting effects mix volume, update looping audio volume correctly.
+		writeValueEnforced<BYTE>(0x5A1F24, 0x52, 0x56);
+		genCallEnforced(0x5A1F25, 0x4029F0, reinterpret_cast<DWORD>(PatchSetLoopingSoundBufferVolume));
+		writeValueEnforced<BYTE>(0x5A1FC5, 0x52, 0x56);
+		genCallEnforced(0x5A1FC6, 0x4029F0, reinterpret_cast<DWORD>(PatchSetLoopingSoundBufferVolume));
+		// Fix Sound::changeVolume scaling constant to be 1/255.
+		writeValueEnforced<DWORD>(0x510C6C, 0x74A9E4, 0x746910);
+
+		// Patch: Add deterministic subtree ordering mode to NiSortAdjustNode. Fix cloning with no accumulator.
+		overrideVirtualTableEnforced(0x750580, 0x78, 0x6DE030, reinterpret_cast<DWORD>(PatchNISortAdjustNodeDisplay));
+		genCallUnprotected(0x6DE21B, reinterpret_cast<DWORD>(PatchNISortAdjustNodeCloneAccumulator));
+
+		// Patch: Add pick proxy behaviour to NiCollisionSwitch.
+		auto CollisionSwitch_linkObject = &NI::CollisionSwitch::linkObject;
+		auto CollisionSwitch_findIntersectons = &NI::CollisionSwitch::findIntersections;
+		overrideVirtualTableEnforced(0x74F418, 0x10, 0x6D7100, *reinterpret_cast<DWORD*>(&CollisionSwitch_linkObject));
+		overrideVirtualTableEnforced(0x74F418, 0x88, 0x6D6E10, *reinterpret_cast<DWORD*>(&CollisionSwitch_findIntersectons));
+
+		// Patch: Improve error reporting by including the source mod next to object IDs in load error messages.
+		// In Cell::loadReference:
+		const BYTE patchImprovedErrorIDArgs0[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs1[] = { 0x8B, 0xCD, 0x90 };
+		const BYTE patchImprovedErrorIDArgs2[] = { 0x50, 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs3[] = { 0x51, 0x8B, 0xCA };
+		const BYTE patchImprovedErrorIDArgs4[] = { 0x8B, 0x32 };
+		const BYTE patchImprovedErrorIDArgs5[] = { 0x8B, 0xCA };
+		const BYTE patchImprovedErrorIDArgs6[] = { 0x51, 0x8B, 0xCA };
+		genCallUnprotected(0x4DE71A, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DE78D, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DE98C, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4DEA86, patchImprovedErrorIDArgs0, sizeof(patchImprovedErrorIDArgs0));
+		genCallUnprotected(0x4DEA88, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4DED73, patchImprovedErrorIDArgs1, sizeof(patchImprovedErrorIDArgs1));
+		genCallUnprotected(0x4DED76, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DF1A5, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DF21B, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4DF42C, patchImprovedErrorIDArgs2, sizeof(patchImprovedErrorIDArgs2));
+		genCallUnprotected(0x4DF42F, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4DF454, patchImprovedErrorIDArgs3, sizeof(patchImprovedErrorIDArgs3));
+		genCallUnprotected(0x4DF457, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4DF551, patchImprovedErrorIDArgs4, sizeof(patchImprovedErrorIDArgs4));
+		genCallUnprotected(0x4DF553, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DF5FD, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4DF7A4, patchImprovedErrorIDArgs5, sizeof(patchImprovedErrorIDArgs5));
+		genCallUnprotected(0x4DF7A6, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4DF7DB, patchImprovedErrorIDArgs6, sizeof(patchImprovedErrorIDArgs6));
+		genCallUnprotected(0x4DF7DE, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DF89A, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DF922, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DF9E4, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DFAA3, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DFB7C, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DFC0E, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DFCB5, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DFDB3, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DFEAA, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DFF50, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4DFFC1, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4E035E, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4E037C, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4E08E7, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		// In link-resolve functions:
+		const BYTE patchImprovedErrorIDArgs7[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs8[] = { 0x8B, 0xCF };
+		const BYTE patchImprovedErrorIDArgs9[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs10[] = { 0x8B, 0xCD, 0x90 };
+		const BYTE patchImprovedErrorIDArgs11[] = { 0x8B, 0xCB };
+		const BYTE patchImprovedErrorIDArgs12[] = { 0x8B, 0xCD, 0x90 };
+		const BYTE patchImprovedErrorIDArgs13[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs14[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs15[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs16[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs17[] = { 0x8B, 0xCF };
+		const BYTE patchImprovedErrorIDArgs18[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs19[] = { 0x8B, 0xCE };
+		const BYTE patchImprovedErrorIDArgs20[] = { 0x8B, 0xCB };
+		genCallUnprotected(0x40FCA5, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x480DDF, patchImprovedErrorIDArgs7, sizeof(patchImprovedErrorIDArgs7));
+		genCallUnprotected(0x480DE1, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x49D121, patchImprovedErrorIDArgs8, sizeof(patchImprovedErrorIDArgs8));
+		genCallUnprotected(0x49D123, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x49FAEF, patchImprovedErrorIDArgs9, sizeof(patchImprovedErrorIDArgs9));
+		genCallUnprotected(0x49FAF1, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4A0686, patchImprovedErrorIDArgs10, sizeof(patchImprovedErrorIDArgs10));
+		genCallUnprotected(0x4A0689, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4A212E, patchImprovedErrorIDArgs11, sizeof(patchImprovedErrorIDArgs11));
+		genCallUnprotected(0x4A2130, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4A2F96, patchImprovedErrorIDArgs12, sizeof(patchImprovedErrorIDArgs12));
+		genCallUnprotected(0x4A2F99, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4A53EF, patchImprovedErrorIDArgs13, sizeof(patchImprovedErrorIDArgs13));
+		genCallUnprotected(0x4A53F1, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4A5995, patchImprovedErrorIDArgs14, sizeof(patchImprovedErrorIDArgs14));
+		genCallUnprotected(0x4A5997, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4A5F2F, patchImprovedErrorIDArgs15, sizeof(patchImprovedErrorIDArgs15));
+		genCallUnprotected(0x4A5F31, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4A64BF, patchImprovedErrorIDArgs16, sizeof(patchImprovedErrorIDArgs16));
+		genCallUnprotected(0x4A64C1, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4AC3FA, patchImprovedErrorIDArgs17, sizeof(patchImprovedErrorIDArgs17));
+		genCallUnprotected(0x4AC3FC, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4CF800, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4D0B60, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4D1D56, patchImprovedErrorIDArgs18, sizeof(patchImprovedErrorIDArgs18));
+		genCallUnprotected(0x4D1D58, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4D7284, patchImprovedErrorIDArgs19, sizeof(patchImprovedErrorIDArgs19));
+		genCallUnprotected(0x4D7286, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		genCallUnprotected(0x4E6C0C, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+		writeBytesUnprotected(0x4F2132, patchImprovedErrorIDArgs20, sizeof(patchImprovedErrorIDArgs20));
+		genCallUnprotected(0x4F2134, reinterpret_cast<DWORD>(PatchGetImprovedObjectIdentifier));
+
+		// Patch: Ensure VFX with maxAge <= 0.001f are cleared when clearing data on load game, instead of leaking.
+		auto VFXManager_reset = &TES3::VFXManager::reset;
+		genCallEnforced(0x4C6F00, 0x469390, *reinterpret_cast<DWORD*>(&VFXManager_reset));
+
+		// Patch: Do not load VFX with maxAge <= 0.001f from save games.
+		genCallEnforced(0x46A04B, 0x468620, reinterpret_cast<DWORD>(PatchVFXManagerCreateFromSaveData));
+
+		// Patch: LTEX loading/unloading array overflow bug. Increase array from 500 to 4096 elements and fix bounds checks.
+		writeValueEnforced(0x4CDF09, 500 / 4, Land_LTEX_isLoaded_size / 4);
+		writeValueEnforced(0x4CDF0E, DWORD(0x7CA9E0), reinterpret_cast<DWORD>(Land_LTEX_isLoaded));
+		writePatchCodeUnprotected(0x4CDF58, (BYTE*)&PatchLandUnloadTexturesBoundsCheck, PatchLandUnloadTexturesBoundsCheck_size);
+		writeValueEnforced(0x4CDF6D, DWORD(0x7CA9E0), reinterpret_cast<DWORD>(Land_LTEX_isLoaded));
+		writeValueEnforced(0x4CDF7E, DWORD(0x7CA9E0), reinterpret_cast<DWORD>(Land_LTEX_isLoaded));
+
+		writeValueEnforced(0x4CECAE, 500 / 4, Land_LTEX_isLoaded_size / 4);
+		writeValueEnforced(0x4CECB3, DWORD(0x7CA9E0), reinterpret_cast<DWORD>(Land_LTEX_isLoaded));
+		writePatchCodeUnprotected(0x4CECD3, (BYTE*)&PatchLandLoadTexturesBoundsCheck, PatchLandLoadTexturesBoundsCheck_size);
+		writeValueEnforced(0x4CECE9, DWORD(0x7CA9E0), reinterpret_cast<DWORD>(Land_LTEX_isLoaded));
+		writeValueEnforced(0x4CEDB1, DWORD(0x7CA9E0), reinterpret_cast<DWORD>(Land_LTEX_isLoaded));
+
+		// Patch: Fall back to reference rotation values when initializing animation controllers without a scene node.
+		genCallEnforced(0x521773, 0x53DE70, reinterpret_cast<DWORD>(PatchSetAnimControllerMobile));
+
+		// Provide lua stack traces with invalid UI access.
+		genCallEnforced(0x581484, 0x476E20, reinterpret_cast<DWORD>(PatchLogUIMemoryPointerErrors));
+		genCallEnforced(0x582DFA, 0x476E20, reinterpret_cast<DWORD>(PatchLogUIMemoryPointerErrors));
+
+		// Patch: Improve raycast accuracy.
+		auto NiTriBasedGeometry_FindIntersections = &NI::TriBasedGeometry::findIntersections;
+		overrideVirtualTableEnforced(0x7508B0, offsetof(NI::TriBasedGeometry_vTable, findIntersections), 0x6F0350, *reinterpret_cast<DWORD*>(&NiTriBasedGeometry_FindIntersections)); // NiTriShape
+		overrideVirtualTableEnforced(0x750A00, offsetof(NI::TriBasedGeometry_vTable, findIntersections), 0x6F0350, *reinterpret_cast<DWORD*>(&NiTriBasedGeometry_FindIntersections)); // NiTriStrips
+		overrideVirtualTableEnforced(0x750CC0, offsetof(NI::TriBasedGeometry_vTable, findIntersections), 0x6F0350, *reinterpret_cast<DWORD*>(&NiTriBasedGeometry_FindIntersections)); // NiTriBasedGeometry
+
+		// Patch: Respect targets when searching for symlinks.
+		writeDoubleWordUnprotected(0x746114, reinterpret_cast<DWORD>(&PatchFindFirstFileA));
+		writeDoubleWordUnprotected(0x746118, reinterpret_cast<DWORD>(&PatchFindNextFileA));
+		writeDoubleWordUnprotected(0x74611C, reinterpret_cast<DWORD>(&PatchFindClose));
+
+		// Patch: Guard against invalid light flicker/pulse updates.
+		genCallEnforced(0x49B75E, 0x4D33D0, reinterpret_cast<DWORD>(PatchEntityLightFlickerPulseUpdate));
+		genCallEnforced(0x4D33BF, 0x4D33D0, reinterpret_cast<DWORD>(PatchEntityLightFlickerPulseUpdate));
+
+		// Patch: Resolve node count mismatch when loading pathgrid records with missing subrecords.
+		writePatchCodeUnprotected(0x4F444E, (BYTE*)&PatchPathGridLoader, PatchPathGridLoader_size);
+		genCallUnprotected(0x4F444E + 4, reinterpret_cast<DWORD>(PatchPathGridLoaderCheckNodeData));
+
+		// Patch: Allow bound armour function to also summon bracers and pauldrons.
+		genCallEnforced(0x466457, 0x465DE0, reinterpret_cast<DWORD>(PatchSwapBoundArmor));
+
+		// Patch: Modify proximity movement speed matching of AI followers to limit the speed match from going to zero on immobilized follow targets.
+		writePatchCodeUnprotected(0x540DBA, (BYTE*)&PatchMovementAnimSpeedMatching, PatchMovementAnimSpeedMatching_size);
+		genCallUnprotected(0x540DBA + 1, reinterpret_cast<DWORD>(PatchGetAnimDataMovementSpeedCapped));
+
+		// Patch: Allow control of whether software or hardware skinning is used through TriShape flags.
+		auto TriShape_linkObject = &NI::TriShape::linkObject;
+		writePatchCodeUnprotected(0x6FF0A8, (BYTE*)&PatchNITriBasedGeom_Ctor1, PatchNITriBasedGeom_Ctor1_size);
+		writePatchCodeUnprotected(0x6FF0F0, (BYTE*)&PatchNITriBasedGeom_Ctor2, PatchNITriBasedGeom_Ctor2_size);
+		genCallEnforced(0x6E54C5, 0x6F15B0, reinterpret_cast<DWORD>(PatchNITriShapeCopyMembers));
+		writePatchCodeUnprotected(0x6ACF1F, (BYTE*)&PatchNIDX8Renderer_RenderShape, PatchNIDX8Renderer_RenderShape_size);
+		overrideVirtualTableEnforced(0x7508B0, offsetof(NI::TriShape_vTable, NI::TriShape_vTable::linkObject), 0x6E56D0, *reinterpret_cast<DWORD*>(&TriShape_linkObject));
 	}
 
 	void installPostLuaPatches() {
@@ -1018,6 +1693,10 @@ namespace mwse::patch {
 			auto NiFlipController_clone = &NI::FlipController::copy;
 			genCallEnforced(0x715D26, DWORD(NI::FlipController::_copy), *reinterpret_cast<DWORD*>(&NiFlipController_clone));
 		}
+	}
+
+	void installPostInitializationPatches() {
+
 	}
 
 	//
@@ -1098,24 +1777,6 @@ namespace mwse::patch {
 		return bRet;
 	}
 
-	const char* SafeGetObjectId(const TES3::BaseObject* object) {
-		__try {
-			return object->getObjectID();
-		}
-		__except (EXCEPTION_EXECUTE_HANDLER) {
-			return nullptr;
-		}
-	}
-
-	const char* SafeGetSourceFile(const TES3::BaseObject* object) {
-		__try {
-			return object->getSourceFilename();
-		}
-		__except (EXCEPTION_EXECUTE_HANDLER) {
-			return nullptr;
-		}
-	}
-
 	const char* GetThreadName(DWORD threadId) {
 		const auto dataHandler = TES3::DataHandler::get();
 		if (dataHandler) {
@@ -1134,25 +1795,9 @@ namespace mwse::patch {
 		return GetThreadName(GetCurrentThreadId());
 	}
 
-	template <typename T>
-	void safePrintObjectToLog(const char* title, const T* object) {
-		if (object) {
-			auto id = SafeGetObjectId(object);
-			auto source = SafeGetSourceFile(object);
-			log::getLog() << "  " << title << ": " << (id ? id : "<memory corrupted>") << " (" << (source ? source : "<memory corrupted>") << ")" << std::endl;
-			if (id) {
-				log::prettyDump(object);
-			}
-		}
-		else {
-			log::getLog() << "  " << title << ": nullptr" << std::endl;
-		}
-	}
-
 	void CreateMiniDump(EXCEPTION_POINTERS* pep) {
-		log::getLog() << std::endl;
-		log::getLog() << "Morrowind has crashed! To help improve game stability, send MWSE_Minidump.dmp and mwse.log to NullCascade@gmail.com or to NullCascade#1010 on Discord." << std::endl;
-		log::getLog() << "Additional support can be found in the #mwse channel at the Morrowind Modding Community Discord: https://discord.me/mwmods" << std::endl;
+		log::getLog() << std::dec << std::endl;
+		log::getLog() << "Morrowind has crashed! To help improve game stability, send MWSE_Minidump.dmp and mwse.log to the #mwse channel at the Morrowind Modding Community Discord: https://discord.me/mwmods" << std::endl;
 
 #ifdef APPVEYOR_BUILD_NUMBER
 		log::getLog() << "MWSE version: " << MWSE_VERSION_MAJOR << "." << MWSE_VERSION_MINOR << "." << MWSE_VERSION_PATCH << "-" << APPVEYOR_BUILD_NUMBER << std::endl;
@@ -1248,11 +1893,11 @@ namespace mwse::patch {
 	}
 
 	bool installMiniDumpHook() {
-#ifndef _DEBUG
-		// Create our hook.
-		return genCallEnforced(0x7279AD, 0x416E10, reinterpret_cast<DWORD>(onWinMain));
-#else
-		return true;
-#endif
+		if constexpr (INSTALL_MINIDUMP_HOOK) {
+			return genCallEnforced(0x7279AD, 0x416E10, reinterpret_cast<DWORD>(onWinMain));
+		}
+		else {
+			return true;
+		}
 	}
 }

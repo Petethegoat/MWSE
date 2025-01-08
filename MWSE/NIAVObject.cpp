@@ -63,8 +63,8 @@ namespace NI {
 		return false;
 	}
 
-	void AVObject::update(float fTime, bool bUpdateControllers, bool bUpdateBounds) {
-		reinterpret_cast<void(__thiscall*)(AVObject*, float, int, int)>(NI_AVObject_update)(this, fTime, bUpdateControllers, bUpdateBounds);
+	void AVObject::update(float fTime, bool bUpdateControllers, bool bUpdateChildren) {
+		reinterpret_cast<void(__thiscall*)(AVObject*, float, int, int)>(NI_AVObject_update)(this, fTime, bUpdateControllers, bUpdateChildren);
 	}
 
 	void AVObject::updateEffects() {
@@ -106,6 +106,11 @@ namespace NI {
 		}
 
 		return removedProperties;
+	}
+
+	const auto NI_AVObject_IntersectBounds = reinterpret_cast<bool(__thiscall*)(const AVObject*, const TES3::Vector3*, const TES3::Vector3*, float*)>(0x6EB930);
+	bool AVObject::intersectBounds(const TES3::Vector3* position, const TES3::Vector3* direction, float* out_result) const {
+		return NI_AVObject_IntersectBounds(this, position, direction, out_result);
 	}
 
 	const auto NI_CreateBoundingBoxForNode = reinterpret_cast<void(__cdecl*)(const AVObject*, TES3::Vector3*, TES3::Vector3*, const TES3::Vector3*, const TES3::Matrix33*, const float*)>(0x4EF410);
@@ -251,9 +256,9 @@ namespace NI {
 			auto values = args.value();
 			float time = values.get_or("time", 0.0f);
 			bool updateControllers = values.get_or("controllers", false);
-			bool updateBounds = values.get_or("bounds", true);
+			bool updateChildren = values.get_or("children", true);
 
-			update(time, updateControllers, updateBounds);
+			update(time, updateControllers, updateChildren);
 		}
 		else {
 			update();

@@ -7,6 +7,8 @@
 #include "CSObject.h"
 #include "CSRecordHandler.h"
 #include "CSScript.h"
+#include "CSActor.h"
+#include "CSReference.h"
 
 #include "LogUtil.h"
 #include "StringUtil.h"
@@ -17,10 +19,36 @@
 #include "EditBasicExtended.h"
 
 #include "WindowMain.h"
+#include "DialogRenderWindow.h"
+
+#include "DialogProcContext.h"
 
 namespace se::cs::dialog::dialogue_window {
 	constexpr auto ENABLE_ALL_OPTIMIZATIONS = true;
 	constexpr auto LOG_PERFORMANCE_RESULTS = false;
+
+	void redisplayAllData(HWND hWnd) {
+		// Invoke update logic by simulating the combo box selection changing.
+		// There may be a better way.
+		auto hFilterCombo = GetDlgItem(hWnd, CONTROL_ID_FILTER_FOR_COMBO);
+		SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(CONTROL_ID_FILTER_FOR_COMBO, CBN_SELCHANGE), (LPARAM)hFilterCombo);
+	}
+
+	void clearFilters(HWND hWnd) {
+		const auto userData = reinterpret_cast<UserData*>(GetWindowLongA(hWnd, GWL_USERDATA));
+		if (userData == nullptr) {
+			return;
+		}
+
+		userData->cellFilterMode = UserData::CellFilterMode::UseCellReference;
+		userData->modeShowModifiedOnly = false;
+
+		Button_SetCheck(GetDlgItem(hWnd, CONTROL_ID_SHOW_MODIFIED_ONLY_BUTTON), BST_UNCHECKED);
+		ComboBox_SetCurSel(GetDlgItem(hWnd, CONTROL_ID_FILTER_FOR_COMBO), 0);
+		ComboBox_SetCurSel(GetDlgItem(hWnd, CONTROL_ID_FILTER_CELL_SETTING_COMBO), 0);
+
+		redisplayAllData(hWnd);
+	}
 
 	HWND createOrFocus(Actor* filter) {
 		auto hWnd = ghWnd::get();
@@ -32,6 +60,42 @@ namespace se::cs::dialog::dialogue_window {
 		return CreateDialogParamA(window::main::hInstance::get(), (LPSTR)DIALOG_ID, window::main::ghWnd::get(), (DLGPROC)0x401334, (LPARAM)filter);
 	}
 
+	HWND getActiveDialogueWindow() {
+		// Get the currently active window.
+		const auto hWndFocused = GetFocus();
+		if (hWndFocused) {
+			char buffer[64] = {};
+			if (GetClassName(hWndFocused, buffer, sizeof(buffer)) && strncmp(buffer, "Dialog", 64) == 0) {
+				return hWndFocused;
+			}
+		}
+
+		// Fall back to the last created window.
+		return ghWnd::get();
+	}
+
+	void selectTab(DialogueType type) {
+		const auto hWnd = ghWnd::get();
+		if (hWnd == NULL) {
+			return;
+		}
+
+		const auto hTabControl = GetDlgItem(hWnd, CONTROL_ID_TOPIC_TABS);
+		if (hTabControl == NULL) {
+			return;
+		}
+
+		const auto index = (unsigned int)type;
+
+		// Note: This is currently being relied on to always call the UI update code for above filter changes.
+		// If optimizing this function to just use TabCtrl_SetCurSel, be sure to modify the focusDialogue function.
+		winui::TabCtrl_SetCurSelEx(hTabControl, index);
+	}
+
+	void selectTab(Dialogue* dialogue) {
+		selectTab(dialogue->type);
+	}
+
 	bool focusDialogue(Dialogue* dialogue, DialogueInfo* info) {
 		using namespace se::cs::winui;
 
@@ -39,6 +103,39 @@ namespace se::cs::dialog::dialogue_window {
 		if (hWnd == NULL) {
 			return false;
 		}
+
+		const auto userData = reinterpret_cast<UserData*>(GetWindowLongA(hWnd, GWL_USERDATA));
+
+		// If the dialog isn't modified and we're filtered to it, make sure it still shows.
+		if (!dialogue->getModified() && userData->modeShowModifiedOnly) {
+			userData->modeShowModifiedOnly = false;
+		}
+
+		// If the dialogue/info isn't available for the current filter actor, remove that too.
+		if (userData->currentFilterObject) {
+			if (info) {
+				if (!info->filter(userData->currentFilterObject, nullptr, 1, dialogue)) {
+					userData->currentFilterObject = nullptr;
+					ComboBox_SetCurSel(GetDlgItem(hWnd, CONTROL_ID_FILTER_FOR_COMBO), 0);
+				}
+			}
+			else {
+				bool hasValidInfo = false;
+				for (const auto& iterInfo : dialogue->infos) {
+					if (iterInfo->filter(userData->currentFilterObject, nullptr, 1, dialogue)) {
+						hasValidInfo = true;
+						break;
+					}
+				}
+				if (!hasValidInfo) {
+					userData->currentFilterObject = nullptr;
+					ComboBox_SetCurSel(GetDlgItem(hWnd, CONTROL_ID_FILTER_FOR_COMBO), 0);
+				}
+			}
+		}
+
+		// Select the right tab.
+		selectTab(dialogue);
 
 		const auto hDlgTopicList = GetDlgItem(hWnd, CONTROL_ID_TOPIC_LIST);
 		if (!ListView_SelectByParam(hDlgTopicList, (LPARAM)dialogue)) {
@@ -55,10 +152,56 @@ namespace se::cs::dialog::dialogue_window {
 		return true;
 	}
 
+	void OnCurrentTextEditChanged(HWND hWnd) {
+		using namespace se::cs::winui;
+		auto hDlgCurrentTextEdit = GetDlgItem(hWnd, CONTROL_ID_CURRENT_TEXT_EDIT);
+		auto textCharCount = Edit_GetTextLength(hDlgCurrentTextEdit);
+
+		SetDlgItemInt(hWnd, CONTROL_ID_CURRENT_TEXT_CHAR_COUNT, textCharCount, FALSE);
+	}
+
 	void resumeRenderingAndRepaint(HWND parent, DWORD childId) {
+		// Update the current text count.
+		OnCurrentTextEditChanged(parent);
+
 		auto child = GetDlgItem(parent, childId);
 		SendMessageA(child, WM_SETREDRAW, TRUE, NULL);
 		RedrawWindow(child, NULL, NULL, RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN);
+	}
+
+	void restoreInfoColumnWidths(HWND hWnd) {
+		const auto infoList = GetDlgItem(hWnd, CONTROL_ID_INFO_LIST);
+
+		ListView_SetColumnWidth(infoList, 0, settings.dialogue_window.column_text.width);
+		ListView_SetColumnWidth(infoList, 1, settings.dialogue_window.column_info_id.width);
+		ListView_SetColumnWidth(infoList, 2, settings.dialogue_window.column_disp_index.width);
+		ListView_SetColumnWidth(infoList, 3, settings.dialogue_window.column_id.width);
+		ListView_SetColumnWidth(infoList, 4, settings.dialogue_window.column_faction.width);
+		ListView_SetColumnWidth(infoList, 5, settings.dialogue_window.column_cell.width);
+		ListView_SetColumnWidth(infoList, 6, settings.dialogue_window.column_condition1.width);
+		ListView_SetColumnWidth(infoList, 7, settings.dialogue_window.column_condition2.width);
+		ListView_SetColumnWidth(infoList, 8, settings.dialogue_window.column_condition3.width);
+		ListView_SetColumnWidth(infoList, 9, settings.dialogue_window.column_condition4.width);
+		ListView_SetColumnWidth(infoList, 10, settings.dialogue_window.column_condition5.width);
+		ListView_SetColumnWidth(infoList, 11, settings.dialogue_window.column_condition6.width);
+	}
+
+
+	void saveInfoColumnWidths(HWND hWnd) {
+		const auto infoList = GetDlgItem(hWnd, CONTROL_ID_INFO_LIST);
+
+		settings.dialogue_window.column_text.width = ListView_GetColumnWidth(infoList, 0);
+		settings.dialogue_window.column_info_id.width = ListView_GetColumnWidth(infoList, 1);
+		settings.dialogue_window.column_disp_index.width = ListView_GetColumnWidth(infoList, 2);
+		settings.dialogue_window.column_id.width = ListView_GetColumnWidth(infoList, 3);
+		settings.dialogue_window.column_faction.width = ListView_GetColumnWidth(infoList, 4);
+		settings.dialogue_window.column_cell.width = ListView_GetColumnWidth(infoList, 5);
+		settings.dialogue_window.column_condition1.width = ListView_GetColumnWidth(infoList, 6);
+		settings.dialogue_window.column_condition2.width = ListView_GetColumnWidth(infoList, 7);
+		settings.dialogue_window.column_condition3.width = ListView_GetColumnWidth(infoList, 8);
+		settings.dialogue_window.column_condition4.width = ListView_GetColumnWidth(infoList, 9);
+		settings.dialogue_window.column_condition5.width = ListView_GetColumnWidth(infoList, 10);
+		settings.dialogue_window.column_condition6.width = ListView_GetColumnWidth(infoList, 11);
 	}
 
 	//
@@ -289,7 +432,7 @@ namespace se::cs::dialog::dialogue_window {
 		}
 
 		if constexpr (LOG_PERFORMANCE_RESULTS) {
-			auto windowData = (DialogueWindowData*)GetWindowLongA(hWnd, GWL_USERDATA);
+			auto windowData = (UserData*)GetWindowLongA(hWnd, GWL_USERDATA);
 			auto timeToInitialize = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - initializationTimer);
 			log::stream << "Displaying INFO " << windowData->currentDialogue->id << "/" << info->loadLinkNodes->name << " took " << timeToInitialize.count() << "ms" << std::endl;
 		}
@@ -310,33 +453,148 @@ namespace se::cs::dialog::dialogue_window {
 	// Patch: Allow filtering of topic list.
 	//
 
-	static bool modeShowModifiedOnly = false;
-
-	bool PatchFilterTopicList(const Dialogue* topic) {
-		if (modeShowModifiedOnly && !topic->getModified()) {
+	bool PatchFilterTopicList(HWND hWnd, const Dialogue* topic) {
+		auto userData = reinterpret_cast<UserData*>(GetWindowLongA(hWnd, GWL_USERDATA));
+		if (userData->modeShowModifiedOnly && !topic->getModified()) {
 			return false;
 		}
 		return true;
 	}
 
 	void __cdecl PatchTopicListAddItem(HWND hDlg, const Dialogue* topic) {
-		if (PatchFilterTopicList(topic)) {
+		if (PatchFilterTopicList(hDlg, topic)) {
 			const auto CS_AddTopicToList = reinterpret_cast<void(__cdecl*)(HWND, const Dialogue*)>(0x4E7050);
 			CS_AddTopicToList(hDlg, topic);
 		}
 	}
 
 	//
+	// Patch: Change behavior of local variable filtering.
+	// 
+	// By default the game shows all locals. This change makes it so that if filtering by an actor, it will only show
+	// locals that are on that NPC.
+	//
+
+	void __cdecl PatchFillConditionCombos(HWND hWnd, int controlIdOffset, int conditionType) {
+		const auto CS_FillConditionCombos = reinterpret_cast<void(__cdecl*)(HWND, int, int)>(0x4E7C00);
+
+		const auto userData = reinterpret_cast<UserData*>(GetWindowLongA(hWnd, GWL_USERDATA));
+		const auto filterScript = (userData && userData->currentFilterObject) ? userData->currentFilterObject->getScript() : nullptr;
+
+		// We only care if we are filtering for local variables, and have a script.
+		// Not Local conditions should not be filtered.
+		if (filterScript == nullptr || conditionType != DialogueInfo::Condition::TypeLocal) {
+			CS_FillConditionCombos(hWnd, controlIdOffset, conditionType);
+			return;
+		}
+
+		// Here we just want to clear the combo and add all the filtered actor's local variables.
+		const auto hConditionCombo = GetDlgItem(hWnd, controlIdOffset + CONTROL_ID_CONDITION_FUNCTION1_VARIABLE_COMBO);
+		ComboBox_ResetContent(hConditionCombo);
+		for (auto i = 0; i < filterScript->header.numShorts; ++i) {
+			const auto index = ComboBox_AddString(hConditionCombo, filterScript->getShortVarName(i));
+			ComboBox_SetItemData(hConditionCombo, index, 's');
+		}
+		for (auto i = 0; i < filterScript->header.numLongs; ++i) {
+			const auto index = ComboBox_AddString(hConditionCombo, filterScript->getLongVarName(i));
+			ComboBox_SetItemData(hConditionCombo, index, 'l');
+		}
+		for (auto i = 0; i < filterScript->header.numFloats; ++i) {
+			const auto index = ComboBox_AddString(hConditionCombo, filterScript->getFloatVarName(i));
+			ComboBox_SetItemData(hConditionCombo, index, 'f');
+		}
+	}
+
+	//
+	// Patch: Change behavior of cell filtering.
+	//
+
+	__declspec(naked) void PatchFilterCellBehavior_Setup() {
+		__asm {
+			mov ecx, esi;	// Size: 0x2
+			mov edx, ebp;	// Size: 0x2
+			nop;			// Size: 0x5, will be a call.
+			nop;
+			nop;
+			nop;
+			nop;
+			test al, al;	// Size: 0x2
+		}
+	}
+	constexpr auto PatchFilterCellBehavior_SetupSize = 0xBu;
+
+	bool FilterWithReferenceCell(DialogueInfo* info, Actor* filterActor) {
+		const auto reference = DataHandler::get()->recordHandler->getReference(filterActor);
+		if (reference == nullptr) {
+			return false;
+		}
+
+		const auto referenceCell = reference->getCell();
+		if (referenceCell == nullptr) {
+			return false;
+		}
+
+		const std::string_view referenceCellId = referenceCell->getObjectID();
+		const std::string_view filterCellId = info->filterCell->getObjectID();
+		if (_strnicmp(referenceCellId.data(), filterCellId.data(), filterCellId.size())) {
+			return false;
+		}
+
+		return true;
+	}
+
+	bool FilterWithRenderWindowCell(DialogueInfo* info, Actor* filterActor) {
+		const auto currentCell = render_window::gCurrentCell::get();
+		if (currentCell == nullptr) {
+			return false;
+		}
+
+		const std::string_view currentCellId = currentCell->getObjectID();
+		const std::string_view filterCellId = info->filterCell->getObjectID();
+		if (_strnicmp(currentCellId.data(), filterCellId.data(), filterCellId.size())) {
+			return false;
+		}
+
+		return true;
+	}
+
+	bool __fastcall PatchFilterCellBehavior(DialogueInfo* info, Actor* filterActor) {
+		const auto hWnd = getActiveDialogueWindow();
+		const auto userData = reinterpret_cast<UserData*>(GetWindowLongA(hWnd, GWL_USERDATA));
+		const auto filterMode = userData ? userData->cellFilterMode : UserData::CellFilterMode::UseCellReference;
+
+		switch (filterMode) {
+		case UserData::CellFilterMode::UseCellReference:
+			return FilterWithReferenceCell(info, filterActor);
+		case UserData::CellFilterMode::UseRenderWindowCell:
+			return FilterWithRenderWindowCell(info, filterActor);
+		case UserData::CellFilterMode::IgnoreCellFilter:
+			return true;
+		}
+
+		return true;
+	}
+
+	//
+	// Patch: Extend structure of the dialogue window user data.
+	//
+
+	LONG __stdcall SetExtendedUserData(HWND hWnd, int nIndex, UserData* userData) {
+		userData->cellFilterMode = UserData::CellFilterMode::UseCellReference;
+		userData->modeShowModifiedOnly = false;
+		return SetWindowLongA(hWnd, nIndex, (LONG)userData);
+	}
+
+	//
 	// Patch: Extend Render Window message handling.
 	//
 
-	std::optional<LRESULT> forcedReturnType = {};
-
 	auto initializationTimer = std::chrono::high_resolution_clock::now();
 
-	void PatchDialogProc_BeforeInitialize(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	void PatchDialogProc_BeforeInitialize(DialogProcContext& context) {
 		using winui::GetStyle;
 		using winui::SetStyle;
+		using winui::ResizeAndCenterWindow;
 
 		// Begin measure of initialization time.
 		if constexpr (LOG_PERFORMANCE_RESULTS) {
@@ -345,6 +603,7 @@ namespace se::cs::dialog::dialogue_window {
 
 		// Disable redraw.
 		if constexpr (ENABLE_ALL_OPTIMIZATIONS) {
+			const auto hWnd = context.getWindowHandle();
 			SendMessageA(GetDlgItem(hWnd, CONTROL_ID_FILTER_FOR_COMBO), WM_SETREDRAW, FALSE, NULL);
 			SendMessageA(GetDlgItem(hWnd, CONTROL_ID_TOPIC_LIST), WM_SETREDRAW, FALSE, NULL);
 			SendMessageA(GetDlgItem(hWnd, CONTROL_ID_INFO_LIST), WM_SETREDRAW, FALSE, NULL);
@@ -362,21 +621,33 @@ namespace se::cs::dialog::dialogue_window {
 		}
 	}
 
-	void PatchDialogProc_GetMinMaxInfo(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		auto info = (LPMINMAXINFO)lParam;
-		info->ptMinTrackSize.x = 1113;
-		info->ptMinTrackSize.y = 700;
-
-		forcedReturnType = 0;
+	void PatchDialogProc_BeforeDestroy(DialogProcContext& context) {
+		// Save column info.
+		saveInfoColumnWidths(context.getWindowHandle());
 	}
 
-	void PatchDialogProc_AfterInitialize(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	constexpr auto MIN_WIDTH = 1113u;
+	constexpr auto MIN_HEIGHT = 700u;
+
+	void PatchDialogProc_GetMinMaxInfo(DialogProcContext& context) {
+		const auto info = context.getMinMaxInfo();
+		info->ptMinTrackSize.x = MIN_WIDTH;
+		info->ptMinTrackSize.y = MIN_HEIGHT;
+
+		context.setResult(0);
+	}
+
+	void PatchDialogProc_AfterInitialize(DialogProcContext& context) {
 		using se::cs::winui::AddStyles;
 		using se::cs::winui::GetRectHeight;
 		using se::cs::winui::GetRectWidth;
 		using se::cs::winui::RemoveStyles;
 		using se::cs::winui::ResizeAndCenterWindow;
 		using se::cs::winui::SetWindowIdByValue;
+
+		// Restore column widths.
+		const auto hWnd = context.getWindowHandle();
+		restoreInfoColumnWidths(hWnd);
 
 		// Reenable redraw.
 		if constexpr (ENABLE_ALL_OPTIMIZATIONS) {
@@ -434,27 +705,38 @@ namespace se::cs::dialog::dialogue_window {
 		auto hInstance = (HINSTANCE)GetWindowLongA(hWnd, GWLP_HINSTANCE);
 		auto font = SendMessageA(hWnd, WM_GETFONT, FALSE, FALSE);
 
+		//constexpr auto hDlgFilterCellStyles = WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_HASSTRINGS;
+		constexpr auto hDlgFilterCellStyles = CBS_DROPDOWNLIST | CBS_SORT | WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP;
+		//constexpr auto hDlgFilterCellExtendedStlyes = WS_EX_LEFT | WS_EX_LTRREADING | WS_EX_RIGHTSCROLLBAR | WS_EX_NOPARENTNOTIFY;
+		constexpr auto hDlgFilterCellExtendedStlyes = NULL;
+		const auto hDlgFilterCell = CreateWindowExA(hDlgFilterCellExtendedStlyes, WC_COMBOBOXA, NULL, hDlgFilterCellStyles, 0, 0, 300, 100, hWnd, (HMENU)CONTROL_ID_FILTER_CELL_SETTING_COMBO, hInstance, NULL);
+		SendMessageA(hDlgFilterCell, EM_SETEXTENDEDSTYLE, hDlgFilterCellExtendedStlyes, hDlgFilterCellExtendedStlyes);
+		SendMessageA(hDlgFilterCell, WM_SETFONT, font, MAKELPARAM(TRUE, FALSE));
+		ComboBox_AddString(hDlgFilterCell, "Filter with first reference's cell");
+		ComboBox_AddString(hDlgFilterCell, "Filter with render window cell");
+		ComboBox_AddString(hDlgFilterCell, "Ignore cell filter");
+		ComboBox_SetCurSel(hDlgFilterCell, 0);
+		ComboBox_SetMinVisible(hDlgFilterCell, 3);
+
 		auto hDlgShowModifiedOnly = CreateWindowExA(NULL, WC_BUTTON, "Show modified only", BS_AUTOCHECKBOX | BS_PUSHLIKE | WS_CHILD | WS_VISIBLE | WS_GROUP, 0, 0, 0, 0, hWnd, (HMENU)CONTROL_ID_SHOW_MODIFIED_ONLY_BUTTON, hInstance, NULL);
 		SendMessageA(hDlgShowModifiedOnly, WM_SETFONT, font, MAKELPARAM(TRUE, FALSE));
+
+		auto hDlgCurrentTextCharCount = CreateWindowExA(NULL, WC_STATIC, "0", SS_RIGHT | WS_CHILD | WS_VISIBLE | WS_GROUP, 0, 0, 0, 0, hWnd, (HMENU)CONTROL_ID_CURRENT_TEXT_CHAR_COUNT, hInstance, NULL);
+		SendMessageA(hDlgCurrentTextCharCount, WM_SETFONT, font, MAKELPARAM(TRUE, FALSE));
+		OnCurrentTextEditChanged(hWnd);
+
+		auto hDlgCurrentTextMaxCharCount = CreateWindowExA(NULL, WC_STATIC, "/512", SS_RIGHT | WS_CHILD | WS_VISIBLE | WS_GROUP, 0, 0, 0, 0, hWnd, (HMENU)CONTROL_ID_CURRENT_TEXT_MAX_CHAR_COUNT, hInstance, NULL);
+		SendMessageA(hDlgCurrentTextMaxCharCount, WM_SETFONT, font, MAKELPARAM(TRUE, FALSE));
 
 		// Make it so the window can be maximized and generally resized.
 		RemoveStyles(hWnd, DS_MODALFRAME);
 		AddStyles(hWnd, WS_SIZEBOX | WS_MAXIMIZEBOX);
 
-		// Enforce minimum size.
-		constexpr auto MIN_WIDTH = 1113;
-		constexpr auto MIN_HEIGHT = 720;
-		RECT windowRect = {};
-		GetClientRect(hWnd, &windowRect);
-		auto windowWidth = GetRectWidth(&windowRect);
-		auto windowHeight = GetRectHeight(&windowRect);
-		if (windowWidth < MIN_WIDTH || windowHeight < MIN_HEIGHT) {
-			ResizeAndCenterWindow(hWnd, MIN_WIDTH, MIN_HEIGHT);
-		}
-		else {
-			// Force a resize anyway to put elements in the right position.
-			SendMessageA(hWnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(windowWidth, windowHeight));
-		}
+		// Restore size, with enforced minimum.
+		const auto& settingsSize = settings.dialogue_window.size;
+		const auto width = std::max(settingsSize.width, MIN_WIDTH);
+		const auto height = std::max(settingsSize.height, MIN_HEIGHT);
+		ResizeAndCenterWindow(hWnd, width, height);
 
 		// Finish measure of initialization time.
 		if constexpr (LOG_PERFORMANCE_RESULTS) {
@@ -463,8 +745,9 @@ namespace se::cs::dialog::dialogue_window {
 		}
 	}
 
-	void PatchDialogProc_AfterNotify_CustomDraw(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		LPNMLVCUSTOMDRAW lplvcd = (LPNMLVCUSTOMDRAW)lParam;
+	void PatchDialogProc_AfterNotify_CustomDraw(DialogProcContext& context) {
+		const auto hWnd = context.getWindowHandle();
+		const auto lplvcd = context.getNotificationCustomDraw();
 
 		const auto idFrom = lplvcd->nmcd.hdr.idFrom;
 		if (settings.dialogue_window.highlight_modified_items && idFrom == CONTROL_ID_TOPIC_LIST || idFrom == CONTROL_ID_INFO_LIST) {
@@ -476,21 +759,23 @@ namespace se::cs::dialog::dialogue_window {
 				if (object) {
 					// Background color highlighting.
 					if (object->getDeleted()) {
-						lplvcd->clrTextBk = RGB(255, 235, 235);
+						lplvcd->clrTextBk = settings.color_theme.highlight_deleted_object_packed_color;
 						SetWindowLongA(hWnd, DWLP_MSGRESULT, CDRF_NEWFONT);
 					}
 					else if (object->getModified()) {
-						lplvcd->clrTextBk = RGB(235, 255, 235);
+						// Modified color highlighting. Different colors for modified-master or mod-added object.
+						lplvcd->clrTextBk = object->isFromMaster() ? settings.color_theme.highlight_modified_from_master_packed_color : settings.color_theme.highlight_modified_new_object_packed_color;
 						SetWindowLongA(hWnd, DWLP_MSGRESULT, CDRF_NEWFONT);
 					}
 				}
 			}
-			forcedReturnType = TRUE;
+			context.setResult(TRUE);
 		}
 	}
 
-	void PatchDialogProc_AfterNotify_TabControl_SelectionChanged(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		auto userData = (DialogueWindowData*)GetWindowLongA(hWnd, GWL_USERDATA);
+	void PatchDialogProc_AfterNotify_TabControl_SelectionChanged(DialogProcContext& context) {
+		const auto hWnd = context.getWindowHandle();
+		auto userData = (UserData*)GetWindowLongA(hWnd, GWL_USERDATA);
 
 		auto hDlgConditionSexStatic = GetDlgItem(hWnd, CONTROL_ID_CONDITION_SEX_STATIC);
 		auto hDlgConditionSexCombo = GetDlgItem(hWnd, CONTROL_ID_CONDITION_SEX_COMBO);
@@ -515,15 +800,15 @@ namespace se::cs::dialog::dialogue_window {
 		}
 	}
 
-	void PatchDialogProc_AfterNotify(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		const auto param = (LPNMHDR)lParam;
+	void PatchDialogProc_AfterNotify(DialogProcContext& context) {
+		const auto param = context.getNotificationData();
 
 		switch (param->code) {
 		case NM_CUSTOMDRAW:
-			PatchDialogProc_AfterNotify_CustomDraw(hWnd, msg, wParam, lParam);
+			PatchDialogProc_AfterNotify_CustomDraw(context);
 			break;
 		case TCN_SELCHANGE:
-			PatchDialogProc_AfterNotify_TabControl_SelectionChanged(hWnd, msg, wParam, lParam);
+			PatchDialogProc_AfterNotify_TabControl_SelectionChanged(context);
 			break;
 		}
 	}
@@ -600,15 +885,17 @@ namespace se::cs::dialog::dialogue_window {
 
 #define ResizeFunctionConditionHelper(hParent, i, x, y) ResizeFunctionCondition(hParent, CONTROL_ID_CONDITION_FUNCTION##i##_TYPE_COMBO, CONTROL_ID_CONDITION_FUNCTION##i##_VARIABLE_COMBO, CONTROL_ID_CONDITION_FUNCTION##i##_CONDITION_COMBO, CONTROL_ID_CONDITION_FUNCTION##i##_VALUE_EDIT, x, y);
 
-	void PatchDialogProc_BeforeSize(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	void PatchDialogProc_BeforeSize(DialogProcContext& context) {
 		using namespace ResizeConstants;
 		using winui::GetRectHeight;
 		using winui::GetRectWidth;
 		using winui::TabCtrl_GetInteriorRect;
 
-		const auto windowWidth = LOWORD(lParam);
-		const auto windowHeight = HIWORD(lParam);
-		
+		const auto hWnd = context.getWindowHandle();
+		const auto lParam = context.getLParam();
+		const auto clientWidth = LOWORD(lParam);
+		const auto clientHeight = HIWORD(lParam);
+
 		RECT tempRect = {};
 
 		// Left section.
@@ -616,10 +903,10 @@ namespace se::cs::dialog::dialogue_window {
 			const auto currentX = WINDOW_EDGE_PADDING;
 			auto currentY = WINDOW_EDGE_PADDING;
 
-			constexpr auto FILTER_FOR_AREA_SIZE = STATIC_HEIGHT + COMBO_HEIGHT * 2 + BASIC_PADDING * 2;
+			constexpr auto FILTER_FOR_AREA_SIZE = STATIC_HEIGHT + COMBO_HEIGHT * 3 + BASIC_PADDING * 3;
 
 			// Dialogue type tabs
-			const auto topicsAreaSize = windowHeight - FILTER_FOR_AREA_SIZE - BASIC_PADDING * 2 - WINDOW_EDGE_PADDING * 2;
+			const auto topicsAreaSize = clientHeight - FILTER_FOR_AREA_SIZE - BASIC_PADDING * 2 - WINDOW_EDGE_PADDING * 2;
 			auto hDlgTopicTabs = GetDlgItem(hWnd, CONTROL_ID_TOPIC_TABS);
 			MoveWindow(hDlgTopicTabs, currentX, currentY, LEFT_SECTION_WIDTH, topicsAreaSize, FALSE);
 
@@ -627,7 +914,7 @@ namespace se::cs::dialog::dialogue_window {
 			auto hDlgTopicList = GetDlgItem(hWnd, CONTROL_ID_TOPIC_LIST);
 			TabCtrl_GetInteriorRect(hDlgTopicTabs, &tempRect);
 			MoveWindow(hDlgTopicList, tempRect.left, tempRect.top, GetRectWidth(&tempRect), GetRectHeight(&tempRect), FALSE);
-			ListView_SetColumnWidth(hDlgTopicList, 0, GetRectWidth(&tempRect) - GetSystemMetrics(SM_CXVSCROLL) - BASIC_PADDING*2);
+			ListView_SetColumnWidth(hDlgTopicList, 0, GetRectWidth(&tempRect) - GetSystemMetrics(SM_CXVSCROLL) - BASIC_PADDING * 2);
 			currentY += topicsAreaSize + BASIC_PADDING * 2;
 
 			// Filter For static
@@ -640,6 +927,11 @@ namespace se::cs::dialog::dialogue_window {
 			MoveWindow(hDlgFilterForCombo, currentX, currentY, LEFT_SECTION_WIDTH, COMBO_HEIGHT, FALSE);
 			currentY += COMBO_HEIGHT + BASIC_PADDING;
 
+			// Cell filter setting combo
+			auto hFilterCellSetting = GetDlgItem(hWnd, CONTROL_ID_FILTER_CELL_SETTING_COMBO);
+			MoveWindow(hFilterCellSetting, currentX, currentY, LEFT_SECTION_WIDTH, COMBO_HEIGHT, FALSE);
+			currentY += COMBO_HEIGHT + BASIC_PADDING;
+
 			// Show modified only button
 			auto hShowModifiedButton = GetDlgItem(hWnd, CONTROL_ID_SHOW_MODIFIED_ONLY_BUTTON);
 			MoveWindow(hShowModifiedButton, currentX, currentY, LEFT_SECTION_WIDTH, COMBO_HEIGHT, FALSE);
@@ -650,29 +942,35 @@ namespace se::cs::dialog::dialogue_window {
 			int currentX = WINDOW_EDGE_PADDING + LEFT_SECTION_WIDTH + BIG_PADDING;
 			int currentY = WINDOW_EDGE_PADDING;
 
-			const auto infoListWidth = windowWidth - LEFT_SECTION_WIDTH - BIG_PADDING - WINDOW_EDGE_PADDING * 2;
+			const auto infoListWidth = clientWidth - LEFT_SECTION_WIDTH - BIG_PADDING - WINDOW_EDGE_PADDING * 2;
 
 			auto hDlgInfoStatic = GetDlgItem(hWnd, CONTROL_ID_INFO_STATIC);
 			MoveWindow(hDlgInfoStatic, currentX, currentY, infoListWidth, STATIC_HEIGHT, FALSE);
 			currentY += STATIC_HEIGHT + BASIC_PADDING;
 
 			auto hDlgInfoList = GetDlgItem(hWnd, CONTROL_ID_INFO_LIST);
-			MoveWindow(hDlgInfoList, currentX, currentY, infoListWidth, windowHeight - currentY - BOTTOM_SECTION_HEIGHT - WINDOW_EDGE_PADDING - BASIC_PADDING, FALSE);
+			MoveWindow(hDlgInfoList, currentX, currentY, infoListWidth, clientHeight - currentY - BOTTOM_SECTION_HEIGHT - WINDOW_EDGE_PADDING - BASIC_PADDING, FALSE);
 		}
 
 		// INFO details section
 		{
 			// Calculate fixed sizes.
-			const auto BOTTOM_MIDDLE_WIDTH = windowWidth - LEFT_SECTION_WIDTH - BOTTOM_RIGHT_SECTION_WIDTH - BIG_PADDING * 2 - WINDOW_EDGE_PADDING * 2;
+			const auto BOTTOM_MIDDLE_WIDTH = clientWidth - LEFT_SECTION_WIDTH - BOTTOM_RIGHT_SECTION_WIDTH - BIG_PADDING * 2 - WINDOW_EDGE_PADDING * 2;
 
 			// Temp values.
 			auto currentX = WINDOW_EDGE_PADDING + LEFT_SECTION_WIDTH + BIG_PADDING;
-			auto currentY = windowHeight - BOTTOM_SECTION_HEIGHT - WINDOW_EDGE_PADDING;
+			auto currentY = clientHeight - BOTTOM_SECTION_HEIGHT - WINDOW_EDGE_PADDING;
 
 			// Info text edit
 			auto hDlgCurrentTextEdit = GetDlgItem(hWnd, CONTROL_ID_CURRENT_TEXT_EDIT);
 			MoveWindow(hDlgCurrentTextEdit, currentX, currentY, BOTTOM_MIDDLE_WIDTH, TOP_INFO_TEXT_HEIGHT, FALSE);
 			currentY += TOP_INFO_TEXT_HEIGHT + BASIC_PADDING;
+
+			auto hDlgCurrentTextCharCount = GetDlgItem(hWnd, CONTROL_ID_CURRENT_TEXT_CHAR_COUNT);
+			MoveWindow(hDlgCurrentTextCharCount, currentX + BOTTOM_MIDDLE_WIDTH - 48, currentY + 10, 18, 20, FALSE);
+
+			auto hDlgCurrentTextMaxCharCount = GetDlgItem(hWnd, CONTROL_ID_CURRENT_TEXT_MAX_CHAR_COUNT);
+			MoveWindow(hDlgCurrentTextMaxCharCount, currentX + BOTTOM_MIDDLE_WIDTH - 30, currentY + 10, 23, 20, FALSE);
 
 			// Speaker Condition button (area)
 			auto hDlgSpeakerConditionButton = GetDlgItem(hWnd, CONTROL_ID_SPEAKER_CONDITION_BUTTON);
@@ -758,12 +1056,12 @@ namespace se::cs::dialog::dialogue_window {
 			auto hDlgCurrentResultEdit = GetDlgItem(hWnd, CONTROL_ID_CURRENT_RESULT_EDIT);
 			MoveWindow(hDlgCurrentResultEdit, currentX, currentY, BOTTOM_MIDDLE_WIDTH, BOTTOM_RESULT_HEIGHT - STATIC_HEIGHT - BASIC_PADDING, FALSE);
 		}
-		
+
 		// Bottom right section.
 		{
 			constexpr auto EXTRA_PADDING_ABOVE_OK_BUTTON = 16;
-			const auto currentX = windowWidth - BOTTOM_RIGHT_SECTION_WIDTH - WINDOW_EDGE_PADDING;
-			auto currentY = windowHeight - BOTTOM_SECTION_HEIGHT - WINDOW_EDGE_PADDING;
+			const auto currentX = clientWidth - BOTTOM_RIGHT_SECTION_WIDTH - WINDOW_EDGE_PADDING;
+			auto currentY = clientHeight - BOTTOM_SECTION_HEIGHT - WINDOW_EDGE_PADDING;
 
 			// Shared By static
 			auto hDlgSharedByStatic = GetDlgItem(hWnd, CONTROL_ID_SHARED_BY_STATIC);
@@ -810,80 +1108,254 @@ namespace se::cs::dialog::dialogue_window {
 
 			// OK button
 			auto hDlgOkButton = GetDlgItem(hWnd, CONTROL_ID_OK_BUTTON);
-			MoveWindow(hDlgOkButton, currentX, windowHeight - BIG_BUTTON_HEIGHT - WINDOW_EDGE_PADDING, BOTTOM_RIGHT_SECTION_WIDTH, BIG_BUTTON_HEIGHT, FALSE);
+			MoveWindow(hDlgOkButton, currentX, clientHeight - BIG_BUTTON_HEIGHT - WINDOW_EDGE_PADDING, BOTTOM_RIGHT_SECTION_WIDTH, BIG_BUTTON_HEIGHT, FALSE);
 		}
 
 		// Force redraw. Embrace the flicker.
 		RedrawWindow(hWnd, NULL, NULL, RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN);
 
-		forcedReturnType = TRUE;
+		// Store window size for later restoration.
+		SIZE winSize = {};
+		if (winui::GetWindowSize(hWnd, winSize)) {
+			settings.dialogue_window.size = winSize;
+		}
+
+		context.setResult(TRUE);
 	}
 
-	void PatchDialogProc_BeforeCommand(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	void OnCellFilterChanged(HWND hWnd, HWND comboBox) {
+		const auto userData = (UserData*)GetWindowLongA(hWnd, GWL_USERDATA);
+		userData->cellFilterMode = (UserData::CellFilterMode)ComboBox_GetCurSel(comboBox);
+		redisplayAllData(hWnd);
+	}
+
+	void PatchDialogProc_BeforeCommand(DialogProcContext& context) {
+		const auto hWnd = context.getWindowHandle();
+		auto userData = (UserData*)GetWindowLongA(hWnd, GWL_USERDATA);
+		const auto wParam = context.getWParam();
 		const auto command = HIWORD(wParam);
 		const auto id = LOWORD(wParam);
 		switch (command) {
 		case BN_CLICKED:
 			switch (id) {
 			case CONTROL_ID_SHOW_MODIFIED_ONLY_BUTTON:
-				modeShowModifiedOnly = SendDlgItemMessageA(hWnd, id, BM_GETCHECK, 0, 0);
-
-				// Invoke update logic by simulating the combo box selection changing.
-				// There may be a better way.
-				auto hFilterCombo = GetDlgItem(hWnd, CONTROL_ID_FILTER_FOR_COMBO);
-				SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(CONTROL_ID_FILTER_FOR_COMBO, CBN_SELCHANGE), (LPARAM)hFilterCombo);
+				userData->modeShowModifiedOnly = SendDlgItemMessageA(hWnd, id, BM_GETCHECK, 0, 0);
+				redisplayAllData(hWnd);
+				break;
+			}
+			break;
+		case EN_CHANGE:
+			switch (id) {
+			case CONTROL_ID_CURRENT_TEXT_EDIT:
+				OnCurrentTextEditChanged(hWnd);
+				break;
+			}
+			break;
+		case CBN_SELCHANGE:
+			switch (id) {
+			case CONTROL_ID_FILTER_CELL_SETTING_COMBO:
+				OnCellFilterChanged(hWnd, (HWND)context.getLParam());
 				break;
 			}
 			break;
 		}
 	}
 
+	const auto functionNames = reinterpret_cast<const char**>(0x6A5A38);
+	const auto compareText = reinterpret_cast<const char**>(0x6A5A20);
+
+	int GetInverseCompareOperator(int compareOp) {
+		using CompareOp = DialogueInfo::Condition::CompareOp;
+		switch (compareOp) {
+		case CompareOp::Equal:
+			return CompareOp::NotEqual;
+		case CompareOp::NotEqual:
+			return CompareOp::Equal;
+		case CompareOp::GreaterThan:
+			return CompareOp::LessThanOrEqual;
+		case CompareOp::GreaterThanOrEqual:
+			return CompareOp::LessThan;
+		case CompareOp::LessThan:
+			return CompareOp::GreaterThanOrEqual;
+		case CompareOp::LessThanOrEqual:
+			return CompareOp::GreaterThan;
+		}
+		return compareOp;
+	}
+
+	void PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_Object(DialogProcContext& context, NMLVDISPINFOA* displayInfo, DialogueInfo* info, DialogueInfo::Condition* condition, bool invert, const char* wrapper = nullptr) {
+		if (condition->compareValue.object == nullptr) {
+			context.setResult(FALSE);
+			return;
+		}
+
+		const auto id = condition->compareValue.object->getObjectID();
+		const auto compare = invert ? compareText[GetInverseCompareOperator(condition->compareOp)] : compareText[condition->compareOp];
+
+		if (wrapper) {
+			sprintf_s(displayInfo->item.pszText, displayInfo->item.cchTextMax, "%s(%s) %s %d", wrapper, id, compare, (int)condition->value);
+		}
+		else {
+			sprintf_s(displayInfo->item.pszText, displayInfo->item.cchTextMax, "%s %s %d", id, compare, (int)condition->value);
+		}
+
+		context.setResult(FALSE);
+	}
+
+	void PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_ObjectDialogue(DialogProcContext& context, NMLVDISPINFOA* displayInfo, DialogueInfo* info, DialogueInfo::Condition* condition, bool invert) {
+		if (condition->compareValue.dialogue == nullptr || condition->compareValue.dialogue->id == nullptr) {
+			context.setResult(FALSE);
+			return;
+		}
+
+		const auto id = condition->compareValue.dialogue->id;
+		const auto compare = invert ? compareText[GetInverseCompareOperator(condition->compareOp)] : compareText[condition->compareOp];
+
+		sprintf_s(displayInfo->item.pszText, displayInfo->item.cchTextMax, "%s %s %d", id, compare, (int)condition->value);
+
+		context.setResult(FALSE);
+	}
+
+	void PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_String(DialogProcContext& context, NMLVDISPINFOA* displayInfo, DialogueInfo* info, DialogueInfo::Condition* condition, bool invert) {
+		const auto compare = invert ? compareText[GetInverseCompareOperator(condition->compareOp)] : compareText[condition->compareOp];
+
+		sprintf_s(displayInfo->item.pszText, displayInfo->item.cchTextMax, "%s %s %d", condition->compareValue.string, compare, (int)condition->value);
+
+		context.setResult(FALSE);
+	}
+
+	void PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_Function(DialogProcContext& context, NMLVDISPINFOA* displayInfo, DialogueInfo* info, DialogueInfo::Condition* condition) {
+		const auto function = functionNames[condition->compareValue.integer];
+		const auto compare = compareText[condition->compareOp];
+
+		sprintf_s(displayInfo->item.pszText, displayInfo->item.cchTextMax, "%s %s %d", function, compare, (int)condition->value);
+
+		context.setResult(FALSE);
+	}
+
+	void PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar(DialogProcContext& context) {
+		const auto displayInfo = context.getNotificationListViewDisplayInfo();
+		const auto info = reinterpret_cast<DialogueInfo*>(displayInfo->item.lParam);
+		const auto conditionIndex = displayInfo->item.iSubItem - 6;
+		const auto condition = &info->conditions[conditionIndex];
+
+		switch (condition->type) {
+		case DialogueInfo::Condition::TypeFunction:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_Function(context, displayInfo, info, condition);
+			break;
+		case DialogueInfo::Condition::TypeGlobal:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_Object(context, displayInfo, info, condition, false);
+			break;
+		case DialogueInfo::Condition::TypeLocal:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_String(context, displayInfo, info, condition, false);
+			break;
+		case DialogueInfo::Condition::TypeJournal:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_ObjectDialogue(context, displayInfo, info, condition, false);
+			break;
+		case DialogueInfo::Condition::TypeItem:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_Object(context, displayInfo, info, condition, false);
+			break;
+		case DialogueInfo::Condition::TypeDead:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_Object(context, displayInfo, info, condition, false, "dead");
+			break;
+		case DialogueInfo::Condition::TypeNotID:
+		case DialogueInfo::Condition::TypeNotFaction:
+		case DialogueInfo::Condition::TypeNotClass:
+		case DialogueInfo::Condition::TypeNotRace:
+		case DialogueInfo::Condition::TypeNotCell:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_Object(context, displayInfo, info, condition, true);
+			break;
+		case DialogueInfo::Condition::TypeNotLocal:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar_String(context, displayInfo, info, condition, true);
+			break;
+		}
+	}
+
+	void PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo(DialogProcContext& context) {
+		const auto lParam = context.getNotificationListViewDisplayInfo();
+		switch (lParam->item.iSubItem) {
+		case 6:
+		case 7:
+		case 8:
+		case 9:
+		case 10:
+		case 11:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo_FunVar(context);
+			break;
+		}
+	}
+
+	void PatchDialogProc_BeforeNotify_InfoList(DialogProcContext& context) {
+		const auto lParam = context.getNotificationData();
+		switch (lParam->code) {
+		case LVN_GETDISPINFO:
+			PatchDialogProc_BeforeNotify_InfoList_GetDisplayInfo(context);
+			break;
+		}
+	}
+
+	void PatchDialogProc_BeforeNotify(DialogProcContext& context) {
+		auto message = context.getNotificationData();
+		switch (message->idFrom) {
+		case CONTROL_ID_INFO_LIST:
+			PatchDialogProc_BeforeNotify_InfoList(context);
+			break;
+		}
+	}
+
 	LRESULT CALLBACK PatchDialogProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		forcedReturnType = {};
+		DialogProcContext context(hWnd, msg, wParam, lParam, 0x4EAEA0);
 
 		switch (msg) {
 		case WM_INITDIALOG:
-			PatchDialogProc_BeforeInitialize(hWnd, msg, wParam, lParam);
+			PatchDialogProc_BeforeInitialize(context);
+			break;
+		case WM_DESTROY:
+			PatchDialogProc_BeforeDestroy(context);
 			break;
 		case WM_SIZE:
-			PatchDialogProc_BeforeSize(hWnd, msg, wParam, lParam);
+			PatchDialogProc_BeforeSize(context);
 			break;
 		case WM_COMMAND:
-			PatchDialogProc_BeforeCommand(hWnd, msg, wParam, lParam);
+			PatchDialogProc_BeforeCommand(context);
+			break;
+		case WM_NOTIFY:
+			PatchDialogProc_BeforeNotify(context);
 			break;
 		}
 
-		if (forcedReturnType) {
-			return forcedReturnType.value();
+		// Call original function, or return early if we already have a result.
+		if (context.hasResult()) {
+			return context.getResult();
 		}
-
-		// Call original function.
-		const auto CS_RenderWindowDialogProc = reinterpret_cast<WNDPROC>(0x4EAEA0);
-		const auto vanillaResult = CS_RenderWindowDialogProc(hWnd, msg, wParam, lParam);
+		else {
+			context.callOriginalFunction();
+		}
 
 		switch (msg) {
 		case WM_GETMINMAXINFO:
-			PatchDialogProc_GetMinMaxInfo(hWnd, msg, wParam, lParam);
+			PatchDialogProc_GetMinMaxInfo(context);
 			break;
 		case WM_INITDIALOG:
-			PatchDialogProc_AfterInitialize(hWnd, msg, wParam, lParam);
+			PatchDialogProc_AfterInitialize(context);
 			break;
 		case WM_NOTIFY:
-			PatchDialogProc_AfterNotify(hWnd, msg, wParam, lParam);
+			PatchDialogProc_AfterNotify(context);
 			break;
 		}
 
-		return forcedReturnType.value_or(vanillaResult);
+		return context.getResult();
 	}
 
 	void installPatches() {
-		using memory::genNOPUnprotected;
-		using memory::genJumpEnforced;
-		using memory::genJumpUnprotected;
 		using memory::genCallEnforced;
 		using memory::genCallUnprotected;
+		using memory::genJumpEnforced;
+		using memory::genJumpUnprotected;
+		using memory::genNOPUnprotected;
 		using memory::writeDoubleWordEnforced;
 		using memory::writePatchCodeUnprotected;
+		using memory::writeValueEnforced;
 
 		// Patch: Optimize insertion of cell names.
 		if constexpr (ENABLE_ALL_OPTIMIZATIONS) {
@@ -894,7 +1366,7 @@ namespace se::cs::dialog::dialogue_window {
 		// Patch: Ensure variable combo box lists can always fit content.
 		genCallUnprotected(0x4E7C14, reinterpret_cast<DWORD>(PatchEnsureVariableComboBoxListWidth_GetCachedHDC), 0x6);
 		writeDoubleWordEnforced(0x4E7C28 + 0x2, 0x6D9DB0, reinterpret_cast<DWORD>(&PatchEnsureVariableComboBoxListWidth_SendDlgItemMessageAWrapper_ExternPointer));
-		
+
 		// Patch: Optimize displaying of INFO info.
 		if constexpr (ENABLE_ALL_OPTIMIZATIONS) {
 			// Optimize populating local lists.
@@ -917,7 +1389,20 @@ namespace se::cs::dialog::dialogue_window {
 		// Patch: Allow filtering of topic list.
 		genCallEnforced(0x4E7143, 0x404160, reinterpret_cast<DWORD>(PatchTopicListAddItem));
 
-		// Patch: Extend Render Window message handling.
+		// Patch: Change behavior of local variable filtering.
+		genJumpEnforced(0x40484A, 0x4E7C00, reinterpret_cast<DWORD>(PatchFillConditionCombos));
+
+		// Patch: Change behavior of cell filtering.
+		genNOPUnprotected(0x4F1D25, 0x4F1DA6 - 0x4F1D25);
+		writePatchCodeUnprotected(0x4F1D25, (BYTE*)PatchFilterCellBehavior_Setup, PatchFilterCellBehavior_SetupSize);
+		writeValueEnforced<BYTE>(0x4F1DA6, 0x74, 0x75);
+		genCallUnprotected(0x4F1D25 + 0x4, reinterpret_cast<DWORD>(PatchFilterCellBehavior));
+
+		// Patch: Extend structure of the dialogue window user data.
+		writeValueEnforced<BYTE>(0x4EBFF4 + 0x1, sizeof(UserData_Vanilla), sizeof(UserData));
+		genCallUnprotected(0x4EC018, reinterpret_cast<DWORD>(SetExtendedUserData), 0x6);
+
+		// Patch: Extend window message handling.
 		genJumpEnforced(0x401334, 0x4EAEA0, reinterpret_cast<DWORD>(PatchDialogProc));
 	}
 }

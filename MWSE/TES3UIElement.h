@@ -2,6 +2,7 @@
 
 #include "TES3Defines.h"
 
+#include "TES3UIManager.h"
 #include "TES3UIString.h"
 #include "TES3UITree.h"
 #include "TES3UIVector.h"
@@ -25,7 +26,7 @@ namespace TES3::UI {
 		bool flagExtendImageToBounds; // 0x74
 		bool visible; // 0x75
 		bool visibleAtLastUpdate; // 0x76
-		bool flagUsesRGBA; // 0x77
+		bool flagColourChanged; // 0x77
 		bool flagPosChanged; // 0x78
 		bool flagSizeChanged; // 0x79
 		bool flagVisibilityChanged; // 0x7A
@@ -155,6 +156,7 @@ namespace TES3::UI {
 		PropertyValue getProperty(PropertyType propType, Property prop) const;
 		PropertyType getPropertyType(Property prop) const;
 		bool hasProperty(Property prop) const;
+		void removeProperty(Property prop);
 		const char* getText() const;
 
 		template <typename T>
@@ -299,6 +301,7 @@ namespace TES3::UI {
 		void setWrapText(bool value);
 
 		bool hasProperty_lua(sol::object key) const;
+		void removeProperty_lua(sol::object key);
 		PropertyType getPropertyType_lua(sol::object key) const;
 		bool getPropertyBool_lua(sol::object key) const;
 		void setPropertyBool_lua(sol::object key, bool value);

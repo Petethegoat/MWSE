@@ -13,8 +13,8 @@ namespace TES3 {
 		unsigned int merchantFlags; // 0x8
 		IteratedList<TravelDestination*> * travelDestinations; // 0xC
 
-		AIConfig() = delete;
-		~AIConfig() = delete;
+		AIConfig();
+		~AIConfig();
 
 		//
 		// Custom functions.
@@ -63,6 +63,8 @@ namespace TES3 {
 
 		bool getBartersWeapons() const;
 		void setBartersWeapons(bool set);
+
+		bool getOffersBartering() const;
 
 		bool getOffersEnchanting() const;
 		void setOffersEnchanting(bool set);

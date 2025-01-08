@@ -5,8 +5,8 @@
 --- A core game object used for storing world simulation data.
 --- @class tes3worldController
 --- @field aiDistanceScale number A value in the range [0, 1]. The (relative) maximum distance setting for AI simulation. Corresponds to the AI distance option in the Options menu.
---- @field allMobileActors tes3mobileActor[]|tes3mobileCreature[]|tes3mobileNPC[]|tes3mobilePlayer[] *Read-only*. The list of all active mobile actors. Mobile actors expire after 72 hours if they have not been in a loaded cell.
---- @field armCamera tes3worldControllerRenderCamera *Read-only*. The access to the first person arms camera.
+--- @field allMobileActors tes3mobileCreature[]|tes3mobileNPC[]|tes3mobilePlayer[] *Read-only*. The list of all active mobile actors. Mobile actors expire after 72 hours if they have not been in a loaded cell.
+--- @field armCamera tes3worldControllerRenderCamera|tes3worldControllerRenderTarget *Read-only*. The access to the first person arms camera.
 --- @field audioController tes3audioController *Read-only*. The audio controller.
 --- @field blindnessFader tes3fader *Read-only*. Screen overlay fader for the blind effect.
 --- @field characterRenderTarget tes3worldControllerRenderTarget *Read-only*. 
@@ -40,14 +40,17 @@
 --- @field hudStyle number No known effect.
 --- @field inputController tes3inputController *Read-only*. The controller responsible for player input.
 --- @field instance HINSTANCE *Read-only*. 
---- @field itemRepairSound tes3sound The sound played when an item is repaired.
+--- @field itemRepairSound tes3sound|nil The sound played when an item is repaired.
+--- 
+--- !!! bug
+--- 	Due to a bug in the game engine, the initialization code for this field never sets it to any `tes3sound` object. Instead, use sound IDs "repair" or "repair fail."
 --- @field lastFrameTime number *Read-only*. The value of `tes3.worldController.systemTime` at the start of the previous frame. Measured in milliseconds since the program was started.
 --- @field lightArmorHitSound tes3sound The sound played when a light armor piece is hit.
 --- @field mapController tes3mapController *Read-only*. The controller responsible for the world and local maps.
 --- @field maxFPS number Maximum framerate target for the engine's FPS limiter.
 --- @field mediumArmorHitSound tes3sound The sound played when a medium armor piece is hit.
 --- @field menuAlpha number A value in the range [0, 1]. The alpha value of the black background of menus. Corresponds to the "Menu transparency" option in the Options menu.
---- @field menuCamera tes3worldControllerRenderCamera *Read-only*. The access to the camera used to render menus.
+--- @field menuCamera tes3worldControllerRenderCamera|tes3worldControllerRenderTarget *Read-only*. The access to the camera used to render menus.
 --- @field menuClickSound tes3sound The sound played when a UI button or other control is clicked.
 --- @field menuController tes3uiMenuController *Read-only*. The controller responsible for the menu system.
 --- @field menuSizeSound tes3sound Unused sound. Not used when a menu is resized.
@@ -57,13 +60,16 @@
 --- @field monthsToRespawn tes3globalVariable *Read-only*. The `monthsToRespawn` global variable, used by the game to count the time left until containers are respawned. This is decremented at the end of a month (or end of a day with the appropriate MCP option). When it reaches `0`, containers are respawned.
 --- @field mouseSensitivityX number The horizontal camera rotation sensitivity. Corresponds to the "Horizontal sensitivity" option in the Options menu.
 --- @field mouseSensitivityY number The vertical camera rotation sensitivity. Corresponds to the "Vertical sensitivity" option in the Options menu.
---- @field musicSituation number The kind of music being played. Only updates when music is not muted.
---- `0` Explore music
---- `1` Combat music
---- `2` Main menu music
+--- @field musicSituation tes3.musicSituation The kind of music being played. Only updates when music is not muted.
 --- 
---- Note: These values are available as [`tes3.musicSituation`](https://mwse.github.io/MWSE/references/music-situations/) constants
---- @field nodeCursor niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. The scenegraph node for the target crosshair.
+--- - `0` Explore music
+--- - `1` Combat music
+--- - `2` Main menu music
+--- 
+--- !!! tip 
+--- 	These values are available via the [`tes3.musicSituation`](https://mwse.github.io/MWSE/references/music-situations/) constants.
+--- 
+--- @field nodeCursor niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. The scenegraph node for the target crosshair.
 --- @field parentWindowHandle HWND *Read-only*. Handle to the parent window.
 --- @field projectionDistance number 
 --- @field quests tes3quest[] *Read-only*. A list of all available quest objects.
@@ -71,12 +77,12 @@
 --- @field rechargingItems tes3rechargingItem[] *Read-only*. A list of enchanted items that are recharging. Items in the list may not all belong to the player.
 --- @field shaderWaterReflectTerrain boolean If pixel shader water reflection includes terrain. Not functional with MGE enabled.
 --- @field shaderWaterReflectUpdate number Period between reflection updates for pixel shader water. Not functional with MGE enabled.
---- @field shadowCamera tes3worldControllerRenderCamera *Read-only*. The access to the camera used for shadows rendering.
---- @field shadows integer An integer in the range of `0` to `6`. Controls the amount of actor shadows drawn. Corresponds to the "Real-time shadows" option in the Options menu.
+--- @field shadowCamera tes3worldControllerRenderCamera|tes3worldControllerRenderTarget *Read-only*. The access to the camera used for shadows rendering.
+--- @field shadows integer An integer in the range of `0` to `6`. Controls the amount of actor shadows drawn. The maximum value of `6` is loose; it is determined by the "Number of Shadows" INI setting. Corresponds to the "Real-time shadows" option in the Options menu.
 --- @field showSubtitles boolean If subtitles are shown. Corresponds to the "Subtitles" option in the Options menu.
---- @field simulationTimeScalar number A scalar used for simulation time. At the start of every frame, the `deltaTime` is multiplied by this value. Doing this here is safer than doing it in another event.
+--- @field simulationTimeScalar number A scalar used for simulation time. At the start of every frame, the `deltaTime` is multiplied by this value. Doing this here is safer than doing it in another event. This value doesn't need to be modified every frame. You need to restore it to its original value to cancel the time scaling.
 --- @field splashController tes3splashController *Read-only*. Access to the splash controller.
---- @field splashscreenCamera tes3worldControllerRenderCamera *Read-only*. The access to the camera used to render splashscreens.
+--- @field splashscreenCamera tes3worldControllerRenderCamera|tes3worldControllerRenderTarget *Read-only*. The access to the camera used to render splashscreens.
 --- @field stopGameLoop boolean When true, the game simulation loop will stop. Not normally used, and may have other unknown effects.
 --- @field sunglareFader tes3fader *Read-only*. Screen overlay fader for sunglare.
 --- @field systemTime number *Read-only*. Time in milliseconds since the program was started.
@@ -84,18 +90,18 @@
 --- @field transitionFader tes3fader *Read-only*. Screen overlay fader for cell transitions.
 --- @field useBestAttack boolean Automatically choose the best attack direction for attacks. Corresponds to the "Always use best attack" option in the Options menu.
 --- @field vfxManager tes3vfxManager *Read-only*. Access to the VFX manager.
---- @field viewHeight number *Read-only*. The height of the UI viewport in pixels. Affected by UI scaling. For screen resolution, use [`tes3.getViewportSize()`](https://mwse.github.io/MWSE/apis/tes3/#tes3getviewportsize).
---- @field viewWidth number *Read-only*. The width of the UI viewport in pixels. Affected by UI scaling. For screen resolution, use [`tes3.getViewportSize()`](https://mwse.github.io/MWSE/apis/tes3/#tes3getviewportsize).
+--- @field viewHeight number *Read-only*. The height of the UI viewport in pixels (also returned by [`tes3ui.getViewportSize()`](https://mwse.github.io/MWSE/apis/tes3ui/#tes3uigetviewportsize)). Affected by UI scaling. For screen resolution, use [`tes3.getViewportSize()`](https://mwse.github.io/MWSE/apis/tes3/#tes3getviewportsize).
+--- @field viewWidth number *Read-only*. The width of the UI viewport in pixels (also used by [`tes3ui.getViewportSize()`](https://mwse.github.io/MWSE/apis/tes3ui/#tes3uigetviewportsize)). Affected by UI scaling. For screen resolution, use [`tes3.getViewportSize()`](https://mwse.github.io/MWSE/apis/tes3/#tes3getviewportsize).
 --- @field weaponSwishSound tes3sound The sound played when an attack with a melee weapon is performed. It always plays when a melee attack is released, irrespective of hit or miss.
 --- @field weatherController tes3weatherController *Read-only*. The weather controller.
 --- @field werewolfFader tes3fader *Read-only*. Screen overlay fader for werewolf vision.
 --- @field werewolfFOV number The camera FOV when the player is a werewolf.
---- @field worldCamera tes3worldControllerRenderCamera *Read-only*. The access to the world camera.
+--- @field worldCamera tes3worldControllerRenderCamera|tes3worldControllerRenderTarget *Read-only*. The access to the world camera.
 --- @field year tes3globalVariable *Read-only*. The `Year` global variable, indicating the current year.
 tes3worldController = {}
 
 --- This method applies an enchantment's effects to a scene node.
---- @param node niBillboardNode|niCollisionSwitch|niNode|niSwitchNode A scene node to which to apply the enchantment's effects.
+--- @param node niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode A scene node to which to apply the enchantment's effects.
 --- @param enchantment tes3enchantment The enchantment's effects to apply.
 --- @return boolean result No description yet available.
 function tes3worldController:applyEnchantEffect(node, enchantment) end

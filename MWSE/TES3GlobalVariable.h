@@ -13,6 +13,8 @@ namespace TES3 {
 		char unknown_0x33;
 		float value; // 0x34
 
+		static constexpr auto OBJECT_TYPE = ObjectType::Global;
+
 		GlobalVariable() = delete;
 		~GlobalVariable() = delete;
 
@@ -20,6 +22,7 @@ namespace TES3 {
 		// Custom functions
 		//
 
+		float getValue() const;
 		double getValue_lua() const;
 		void setValue_lua(double value);
 

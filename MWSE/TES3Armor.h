@@ -47,8 +47,8 @@ namespace TES3 {
 	struct Armor : Item {
 		IteratedList<TES3::BaseObject*> stolenList; // 0x30
 		char * name; // 0x44
-		Script * script; // 0x48
-		char * model; // 0x4C
+		char * model; // 0x48
+		Script * script; // 0x4C
 		char * icon; // 0x50
 		WearablePart parts[7];  // 0x54
 		ArmorSlot::value_type slot; // 0xA8
@@ -58,6 +58,8 @@ namespace TES3 {
 		int enchantCapacity; // 0xB8
 		int armorRating; // 0xBC
 		Enchantment * enchantment; // 0xC0
+
+		static constexpr auto OBJECT_TYPE = ObjectType::Armor;
 
 		Armor();
 		~Armor();
@@ -86,6 +88,8 @@ namespace TES3 {
 
 		float calculateArmorRating_lua(sol::object actor);
 
+		bool isClosedHelmet() const;
+		bool isUsableByBeasts() const;
 	};
 	static_assert(sizeof(Armor) == 0xC4, "TES3::Armor failed size validation");
 

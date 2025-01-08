@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TES3UIDefines.h"
+#include "TES3UIVector.h"
 #include "NINode.h"
 #include "NIPick.h"
 
@@ -22,21 +23,18 @@ namespace TES3::UI {
 		Element* pointerMovePreviousEventSource; // 0x40
 		Element* buttonPressEventSource; // 0x44
 		Element* buttonPressPreviousEventSource; // 0x48
-		int unknown_0x4C;
-		int unknown_0x50;
-		int unknown_0x54;
-		char unknown_0x58;
-		char unknown_0x59;
-		char unknown_0x5A;
+		Element* unknown_0x4C;
+		int lastMouseX; // 0x50
+		int lastMouseY; // 0x54
+		bool flagUpdateOnMouseReleased; // 0x58
+		bool isMouseButtonHeldDown; // 0x59
+		bool transitionToMenuMode; // 0x5A
 		int repeatKeyCode; // 0x5C
 		float repeatKeyTimer; // 0x60
 		Event events[2]; // 0x64
 		bool shiftKeyDown; // 0x84
 		Element* textInputFocus; // 0x88
-		char unknown_0x8C;
-		int unknown_0x90;
-		int unknown_0x94;
-		int unknown_0x98;
+		Vector<void*> repeatingEvents; // 0x8C
 		unsigned int modifierKeyFlags; // 0x9C 
 		bool chargenNameDone; // 0xA0
 		bool unknown_0xA1;
@@ -44,6 +42,10 @@ namespace TES3::UI {
 		bool chargenRaceSexDone; // 0xA3
 		bool chargenBirthsignDone; // 0xA4
 		Reference* mouseoverWorldObject; // 0xA8
+
+		static Object* lastTooltipObject;
+		static ItemData* lastTooltipItemData;
+		static int lastTooltipCount;
 
 		MenuInputController() = delete;
 		~MenuInputController() = delete;
@@ -176,8 +178,8 @@ namespace TES3::UI {
 		ScriptCompiler* scriptCompiler; // 0x20
 		unsigned int gameplayFlags; // 0x24
 		int helpDelay; // 0x28
-		char unknown_0x2C;
-		TES3::UI::Element* unknown_0x30;
+		bool flagClearHelpMenu; // 0x2C
+		TES3::UI::Element* menuAtFront; // 0x30
 		bool inventoryMenuEnabled; // 0x34
 		bool statsMenuEnabled; // 0x35
 		bool magicMenuEnabled; // 0x36
@@ -217,8 +219,30 @@ namespace TES3::UI {
 		bool getMapMenuEnabled();
 		bool getStatsMenuEnabled();
 
+		bool getGodModeEnabled() const;
+		void setGodModeEnabled(bool state);
+		bool getAIDisabled() const;
+		void setAIDisabled(bool state);
+		bool getBordersEnabled() const;
+		void setBordersEnabled(bool state);
+		bool getSkyDisabled() const;
+		void setSkyDisabled(bool state);
+		bool getWorldDisabled() const;
+		void setWorldDisabled(bool state);
+		bool getWireframeEnabled() const;
+		void setWireframeEnabled(bool state);
+		bool getCollisionDisabled() const;
+		void setCollisionDisabled(bool state);
+		bool getCollisionBoxesEnabled() const;
+		void setCollisionBoxesEnabled(bool state);
 		bool getFogOfWarDisabled() const;
 		void setFogOfWarDisabled(bool state);
+		bool getMenusDisabled() const;
+		void setMenusDisabled(bool state);
+		bool getScriptsDisabled() const;
+		void setScriptsDisabled(bool state);
+		bool getShowPathGrid() const;
+		void setShowPathGrid(bool state);
 
 		std::reference_wrapper<FontColor[FontColorId::MAX_ID + 1]> getFontColors();
 

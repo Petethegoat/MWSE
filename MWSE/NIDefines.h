@@ -1,6 +1,7 @@
 #pragma once
 
 namespace NI {
+	struct Accumulator;
 	struct AlphaProperty;
 	struct AmbientLight;
 	struct AVObject;
@@ -66,6 +67,7 @@ namespace NI {
 	struct TexturingProperty;
 	struct TimeController;
 	struct Transform;
+	struct Triangle;
 	struct TriBasedGeometry;
 	struct TriBasedGeometryData;
 	struct TriShape;

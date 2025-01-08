@@ -16,6 +16,7 @@
 *.modelproj  text eol=crlf
 *.sqlproj    text eol=crlf
 *.wmaproj    text eol=crlf
+*.rc         binary
 
 *.xproj      text eol=crlf
 *.props      text eol=crlf
@@ -33,6 +34,10 @@
 *.h text
 *.h++ text
 *.hh text
+
+# marking lua and md files as text, with crlf set to true so that documentation can be built on other operating systems
+*.lua text eol=crlf
+*.md text eol=crlf
 
 # Compiled Object files
 *.slo binary
@@ -70,5 +75,3 @@
 *.def text
 *.bmp binary
 *.ico binary
-*.rc text
-

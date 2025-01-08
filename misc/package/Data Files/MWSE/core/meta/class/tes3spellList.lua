@@ -9,7 +9,8 @@
 --- Direct access to the spells in this list.
 tes3spellList = {}
 
---- Adds a spell to the list.
+--- Adds a spell to the list. This is deprecated, please use tes3.addSpell instead. This function does not update any modified flags or UI systems, so it is likely to cause issues.
+--- @deprecated
 --- @param spell string|tes3spell The spell.
 --- @return boolean result No description yet available.
 function tes3spellList:add(spell) end
@@ -20,7 +21,7 @@ function tes3spellList:add(spell) end
 function tes3spellList:contains(spell) end
 
 --- Finds the first spell with the type provided.
---- @param spellType number A value from [`tes3.spellType`](https://mwse.github.io/MWSE/references/spell-types/) enumeration.
+--- @param spellType tes3.spellType A value from [`tes3.spellType`](https://mwse.github.io/MWSE/references/spell-types/) enumeration.
 --- @return tes3spell result No description yet available.
 function tes3spellList:containsType(spellType) end
 
@@ -28,7 +29,7 @@ function tes3spellList:containsType(spellType) end
 --- @return tes3spell result No description yet available.
 function tes3spellList:getCheapest() end
 
---- Removes a spell from the list.
+--- Removes a spell from the list. This is deprecated, please use tes3.removeSpell instead. This function does not update any modified flags or UI systems, so it is likely to cause issues.
 --- @param spell string|tes3spell The spell.
 --- @return boolean result No description yet available.
 function tes3spellList:remove(spell) end

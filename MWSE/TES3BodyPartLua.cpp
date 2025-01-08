@@ -87,17 +87,15 @@ namespace mwse::lua {
 			usertypeDefinition["new"] = sol::no_constructor;
 
 			// Basic property binding.
-			usertypeDefinition["activeBodyParts"] = sol::readonly_property(&TES3::BodyPartManager::activeBodyParts);
 			usertypeDefinition["animationPhase"] = sol::readonly_property(&TES3::BodyPartManager::animationPhase);
-			usertypeDefinition["attachNodes"] = sol::readonly_property(&TES3::BodyPartManager::attachNodes);
+			usertypeDefinition["attachNodes"] = sol::readonly_property(&TES3::BodyPartManager::getAttachNodes);
 			usertypeDefinition["reference"] = sol::readonly_property(&TES3::BodyPartManager::reference);
 
 			// Basic function bindings.
 			usertypeDefinition["getActiveBodyPart"] = &TES3::BodyPartManager::getActiveBodyPart;
 			usertypeDefinition["getActiveBodyPartForItem"] = &TES3::BodyPartManager::getActiveBodyPartForItem;
-			usertypeDefinition["getActiveBodyPartNode"] = &TES3::BodyPartManager::getActiveBodyPartNode;
+			usertypeDefinition["removeActiveBodyPart"] = &TES3::BodyPartManager::removeActiveBodyPart;
 			usertypeDefinition["removeEquippedLayers"] = &TES3::BodyPartManager::removeEquippedLayers;
-			usertypeDefinition["setActivePartData"] = &TES3::BodyPartManager::setActivePartData;
 			usertypeDefinition["setBodyPartByIdForObject"] = &TES3::BodyPartManager::setBodyPartByIdForObject;
 			usertypeDefinition["setBodyPartForObject"] = &TES3::BodyPartManager::setBodyPartForObject;
 			usertypeDefinition["updateForReference"] = &TES3::BodyPartManager::updateForReference;

@@ -1,6 +1,7 @@
 return {
 	type = "event",
 	description = "This event fires when a trap is being disarmed.",
+	related = { "lockPick" },
 	eventData = {
 		["reference"] = {
 			type = "tes3reference",
@@ -29,8 +30,7 @@ return {
 		},
 		["chance"] = {
 			type = "number",
-			readOnly = true,
-			description = "The chance the trap disarm will be successful.",
+			description = "The chance that the probe attempt will be successful. May be modified. If set to a value `<= 0`, the attempt will fail and the \"Trap too complex\" message will be displayed.",
 		},
 		["trapPresent"] = {
 			type = "boolean",

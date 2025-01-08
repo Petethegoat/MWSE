@@ -34,17 +34,11 @@
     <Filter Include="Header Files\UI\Dialog">
       <UniqueIdentifier>{3f188b73-08d2-41c8-b8eb-ce4d275520c6}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Header Files\UI\Classes">
-      <UniqueIdentifier>{55d26094-df7c-4c07-80a9-2bf8bc2154fd}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Source Files\UI">
       <UniqueIdentifier>{c3107347-89e3-459b-8d01-ab3d671d747a}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\UI\Dialog">
       <UniqueIdentifier>{005593a0-f7ef-47c2-be0d-1b5af6f39a66}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\UI\Classes">
-      <UniqueIdentifier>{a45cab09-92be-4384-b1ab-65c4bf53ea2d}</UniqueIdentifier>
     </Filter>
     <Filter Include="Header Files\UI\Controllers">
       <UniqueIdentifier>{426eea90-9e20-4293-9b7c-97ceb28b4a42}</UniqueIdentifier>
@@ -55,12 +49,106 @@
     <Filter Include="Source Files\NI">
       <UniqueIdentifier>{f9bdffe1-0d39-45c0-9896-032b172b4e5b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\UI\ControlClasses">
+      <UniqueIdentifier>{55d26094-df7c-4c07-80a9-2bf8bc2154fd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\UI\ControlClasses">
+      <UniqueIdentifier>{a45cab09-92be-4384-b1ab-65c4bf53ea2d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\UI\DialogClasses">
+      <UniqueIdentifier>{297cce26-5a28-4344-8824-65127609a17b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\UI\DialogClasses">
+      <UniqueIdentifier>{e27d27d9-0a04-49a6-a7ba-63ca1d35d1eb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Metadata">
+      <UniqueIdentifier>{4449a4dc-e573-49a7-9f26-670871381d55}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Metadata">
+      <UniqueIdentifier>{e6b55397-019d-43f0-adb3-85987e0df10a}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="CSSE.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="pch.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DialogAboutCSSE.cpp">
+      <Filter>Source Files\UI\DialogClasses</Filter>
+    </ClCompile>
+    <ClCompile Include="DialogCSSESettings.cpp">
+      <Filter>Source Files\UI\DialogClasses</Filter>
+    </ClCompile>
+    <ClCompile Include="CDataBoundPropertyGridProperty.cpp">
+      <Filter>Source Files\UI\ControlClasses</Filter>
+    </ClCompile>
+    <ClCompile Include="CSCell.cpp">
+      <Filter>Source Files\CS</Filter>
+    </ClCompile>
+    <ClCompile Include="PathUtil.cpp">
+      <Filter>Source Files\Util</Filter>
+    </ClCompile>
+    <ClCompile Include="DialogActorAIWindow.cpp">
+      <Filter>Source Files\UI\Dialog</Filter>
+    </ClCompile>
+    <ClCompile Include="TextureRenderer.cpp">
+      <Filter>Source Files\UI\Controllers</Filter>
+    </ClCompile>
+    <ClCompile Include="CSGameSetting.cpp">
+      <Filter>Source Files\CS</Filter>
+    </ClCompile>
+    <ClCompile Include="CSClass.cpp">
+      <Filter>Source Files\CS</Filter>
+    </ClCompile>
+    <ClCompile Include="CSRace.cpp">
+      <Filter>Source Files\CS</Filter>
+    </ClCompile>
+    <ClCompile Include="CSFaction.cpp">
+      <Filter>Source Files\CS</Filter>
+    </ClCompile>
+    <ClCompile Include="CSBirthsign.cpp">
+      <Filter>Source Files\CS</Filter>
+    </ClCompile>
+    <ClCompile Include="CSObject.cpp">
+      <Filter>Source Files\CS</Filter>
+    </ClCompile>
+    <ClCompile Include="TomlUtil.cpp">
+      <Filter>Source Files\Util</Filter>
+    </ClCompile>
+    <ClCompile Include="MetadataUtil.cpp">
+      <Filter>Source Files\Metadata</Filter>
+    </ClCompile>
+    <ClCompile Include="ModMetadata.cpp">
+      <Filter>Source Files\Metadata</Filter>
+    </ClCompile>
+    <ClCompile Include="CSDialogue.cpp">
+      <Filter>Source Files\CS</Filter>
+    </ClCompile>
+    <ClCompile Include="DialogProcContext.cpp">
+      <Filter>Source Files\UI</Filter>
+    </ClCompile>
+    <ClCompile Include="DialogUseReportWindow.cpp">
+      <Filter>Source Files\UI\Dialog</Filter>
+    </ClCompile>
+    <ClCompile Include="DialogPathGridWindow.cpp">
+      <Filter>Source Files\UI\Dialog</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="CSSE.def">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="res\CSSE.rc2">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="pch.h">
+    <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DialogObjectWindow.h">
@@ -138,7 +226,7 @@
     <ClInclude Include="DialogSearchAndReplaceWindow.h">
       <Filter>Header Files\UI\Dialog</Filter>
     </ClInclude>
-    <ClInclude Include="Settings.h">
+    <ClInclude Include="Resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DialogDataFilesWindow.h">
@@ -154,7 +242,7 @@
       <Filter>Header Files\CS</Filter>
     </ClInclude>
     <ClInclude Include="EditBasicExtended.h">
-      <Filter>Header Files\UI\Classes</Filter>
+      <Filter>Header Files\UI\ControlClasses</Filter>
     </ClInclude>
     <ClInclude Include="ObjectWindowTabData.h">
       <Filter>Header Files\UI\Controllers</Filter>
@@ -288,6 +376,75 @@
     <ClInclude Include="DialogScriptEditorWindow.h">
       <Filter>Header Files\UI\Dialog</Filter>
     </ClInclude>
+    <ClInclude Include="DialogLandscapeEditSettingsWindow.h">
+      <Filter>Header Files\UI\Dialog</Filter>
+    </ClInclude>
+    <ClInclude Include="CSSE.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="pch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Settings.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DialogAboutCSSE.h">
+      <Filter>Header Files\UI\DialogClasses</Filter>
+    </ClInclude>
+    <ClInclude Include="DialogCSSESettings.h">
+      <Filter>Header Files\UI\DialogClasses</Filter>
+    </ClInclude>
+    <ClInclude Include="CDataBoundPropertyGridProperty.h">
+      <Filter>Header Files\UI\ControlClasses</Filter>
+    </ClInclude>
+    <ClInclude Include="CSArchive.h">
+      <Filter>Header Files\CS</Filter>
+    </ClInclude>
+    <ClInclude Include="PathUtil.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+    <ClInclude Include="DialogActorAIWindow.h">
+      <Filter>Header Files\UI\Dialog</Filter>
+    </ClInclude>
+    <ClInclude Include="CSRegion.h">
+      <Filter>Header Files\CS</Filter>
+    </ClInclude>
+    <ClInclude Include="TextureRenderer.h">
+      <Filter>Header Files\UI\Controllers</Filter>
+    </ClInclude>
+    <ClInclude Include="CSClass.h">
+      <Filter>Header Files\CS</Filter>
+    </ClInclude>
+    <ClInclude Include="CSRace.h">
+      <Filter>Header Files\CS</Filter>
+    </ClInclude>
+    <ClInclude Include="CSBirthsign.h">
+      <Filter>Header Files\CS</Filter>
+    </ClInclude>
+    <ClInclude Include="TomlUtil.h">
+      <Filter>Header Files\Util</Filter>
+    </ClInclude>
+    <ClInclude Include="ModMetadata.h">
+      <Filter>Header Files\Metadata</Filter>
+    </ClInclude>
+    <ClInclude Include="MetadataUtil.h">
+      <Filter>Header Files\Metadata</Filter>
+    </ClInclude>
+    <ClInclude Include="DialogProcContext.h">
+      <Filter>Header Files\UI</Filter>
+    </ClInclude>
+    <ClInclude Include="CSDoor.h">
+      <Filter>Header Files\CS</Filter>
+    </ClInclude>
+    <ClInclude Include="DialogUseReportWindow.h">
+      <Filter>Header Files\UI\Dialog</Filter>
+    </ClInclude>
+    <ClInclude Include="CSGlobalVariable.h">
+      <Filter>Header Files\CS</Filter>
+    </ClInclude>
+    <ClInclude Include="DialogPathGridWindow.h">
+      <Filter>Header Files\UI\Dialog</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -348,7 +505,7 @@
       <Filter>Source Files\CS</Filter>
     </ClCompile>
     <ClCompile Include="EditBasicExtended.cpp">
-      <Filter>Source Files\UI\Classes</Filter>
+      <Filter>Source Files\UI\ControlClasses</Filter>
     </ClCompile>
     <ClCompile Include="ObjectWindowTabData.cpp">
       <Filter>Source Files\UI\Controllers</Filter>
@@ -446,10 +603,18 @@
     <ClCompile Include="DialogScriptEditorWindow.cpp">
       <Filter>Source Files\UI\Dialog</Filter>
     </ClCompile>
+    <ClCompile Include="DialogLandscapeEditSettingsWindow.cpp">
+      <Filter>Source Files\UI\Dialog</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="CSSE.h">
-      <Filter>Header Files\CS</Filter>
-    </None>
+    <ResourceCompile Include="CSSE.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="main_toolbar.bmp">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>

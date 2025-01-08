@@ -94,8 +94,10 @@ namespace mwse::lua {
 					}
 					else {
 						sol::error error = result;
-						const char* errorSource = target->name.cString ? target->name.cString : "(unnamed)";
-						log::getLog() << "Lua error encountered during UI before-event from element " << errorSource << ":" << std::endl << error.what() << std::endl;
+						char errorSource[256];
+						std::snprintf(errorSource, sizeof(errorSource), "uiElement %s", target->name.cString ? target->name.cString : "(unnamed)");
+						log::getLog() << "Lua error encountered during UI before-event from " << errorSource << ":" << std::endl << error.what() << std::endl;
+						reportErrorInGame(errorSource, error);
 						return true;
 					}
 				}
@@ -136,8 +138,10 @@ namespace mwse::lua {
 				}
 				else {
 					sol::error error = result;
-					const char* errorSource = target->name.cString ? target->name.cString : "(unnamed)";
-					log::getLog() << "Lua error encountered during UI event from element " << errorSource << ":" << std::endl << error.what() << std::endl;
+					char errorSource[256];
+					std::snprintf(errorSource, sizeof(errorSource), "uiElement %s", target->name.cString ? target->name.cString : "(unnamed)");
+					log::getLog() << "Lua error encountered during UI event from " << errorSource << ":" << std::endl << error.what() << std::endl;
+					reportErrorInGame(errorSource, error);
 					return true;
 				}
 			}
@@ -192,8 +196,10 @@ namespace mwse::lua {
 					}
 					else {
 						sol::error error = result;
-						const char* errorSource = target->name.cString ? target->name.cString : "(unnamed)";
-						log::getLog() << "Lua error encountered during UI after-event from element " << errorSource << ":" << std::endl << error.what() << std::endl;
+						char errorSource[256];
+						std::snprintf(errorSource, sizeof(errorSource), "uiElement %s", target->name.cString ? target->name.cString : "(unnamed)");
+						log::getLog() << "Lua error encountered during UI after-event from " << errorSource << ":" << std::endl << error.what() << std::endl;
+						reportErrorInGame(errorSource, error);
 						return true;
 					}
 				}
@@ -421,6 +427,7 @@ namespace mwse::lua {
 		tes3ui["setConsoleReference"] = TES3::UI::setConsoleReference;
 		tes3ui["showBookMenu"] = TES3::UI::showBookMenu;
 		tes3ui["showDialogueMessage"] = TES3::UI::showDialogueMessage_lua;
+		tes3ui["showMagicSelectMenu"] = TES3::UI::showMagicSelectMenu_lua;
 		tes3ui["showInventorySelectMenu"] = TES3::UI::showInventorySelectMenu_lua;
 		tes3ui["showJournal"] = TES3::UI::showJournal;
 		tes3ui["showScrollMenu"] = TES3::UI::showScrollMenu;
@@ -434,6 +441,13 @@ namespace mwse::lua {
 		tes3ui["updateInventorySelectTiles"] = TES3::UI::updateInventorySelectTiles_lua;
 		tes3ui["updateInventoryTiles"] = TES3::UI::updateInventoryMenuTiles;
 		tes3ui["updateSpellmakingMenu"] = TES3::UI::updateSpellmakingMenu;
+		tes3ui["updateStatsPane"] = TES3::UI::updateStatsPane;
+
+		auto textLayout = state.create_table();
+		tes3ui["textLayout"] = textLayout;
+		textLayout["getFontHeight"] = TES3::UI::textLayoutGetFontHeight_lua;
+		textLayout["getTextExtent"] = TES3::UI::textLayoutGetTextExtent_lua;
+		textLayout["wrapText"] = TES3::UI::textLayoutWrapText_lua;
 
 		// Internal mwse functions.
 		state["mwse"]["copyLuaCallbacks"] = copyLuaCallbacks;

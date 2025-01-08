@@ -10,9 +10,9 @@
 --- @field enchantment tes3enchantment The enchantment used by the object.
 --- @field flags number Access to the weapon flag bitfield. Known flags can be accessed via other weapon properties.
 --- @field hasDurability boolean *Read-only*. Whether the weapon type has durability. Thrown weapons and ammunition are used once fired, and therefore do not use durability.
---- @field icon string The path to the object's icon.
+--- @field icon string The path to the object's icon. Relative to `Data Files\\icons\\`.
 --- @field ignoresNormalWeaponResistance boolean Access to the flag that controls if this weapon bypasses the "Resist normal weapons" magic effect.
---- @field isAmmo boolean *Read-only*. If true, the weapon is a type of ammunition.
+--- @field isAmmo boolean *Read-only*. If true, the weapon is a type of ammunition. Arrows and bolts are ammunition, while thrown weapons aren't.
 --- @field isMelee boolean *Read-only*. If true, the weapon has a melee weapon type.
 --- @field isOneHanded boolean *Read-only*. If true, the weapon is a one-handed weapon.
 --- @field isProjectile boolean *Read-only*. If true, the weapon is a projectile.
@@ -20,18 +20,18 @@
 --- @field isSilver boolean If true, the weapon has a silver material flag. Silver weapons deal double damage to the Undead and Werewolf creatures.
 --- @field isTwoHanded boolean *Read-only*. If true, the weapon is a two-handed melee weapon.
 --- @field maxCondition number The object's maximum condition.
---- @field mesh string The path to the object's mesh.
+--- @field mesh string The path to the object's mesh. Relative to `Data Files\\meshes\\`.
 --- @field name string The player-facing name for the object.
 --- @field reach number The weapon's relative reach. A value of `1.0` is the standard reach. It is multiplied by the GMST `fCombatDistance` to find the attack reach in world units.
 --- @field script tes3script *Read-only*. The script that runs on the object.
 --- @field skill tes3skill Gets the skill data for the attack skill used by the weapon.
---- @field skillId number Gets the skill ID for the attack skill used by the weapon. Maps to values in [`tes3.skill`](https://mwse.github.io/MWSE/references/skills/) namespace.
+--- @field skillId tes3.skill Gets the skill ID for the attack skill used by the weapon. Maps to values in [`tes3.skill`](https://mwse.github.io/MWSE/references/skills/) namespace.
 --- @field slashMax number Slash damage inflicted at maximum weapon swing.
 --- @field slashMin number Slash damage inflicted at minimum weapon swing.
 --- @field speed number The relative attack speed of the weapon. Controls attack timing and animation speed. Standard speed is `1.0`.
 --- @field thrustMax number Thrust damage inflicted at maximum weapon swing.
 --- @field thrustMin number Thrust damage inflicted at minimum weapon swing.
---- @field type number *Read-only*. A number representing the weapon type. Matches values from the [`tes3.weaponType`](https://mwse.github.io/MWSE/references/weapon-types/) table.
+--- @field type tes3.weaponType *Read-only*. A number representing the weapon type. Matches values from the [`tes3.weaponType`](https://mwse.github.io/MWSE/references/weapon-types/) table.
 --- @field typeName string *Read-only*. The player-facing name for the weapon type.
 --- @field value number The value of the object.
 --- @field weight number The weight of the object.

@@ -20,16 +20,17 @@ namespace mwse::lua {
 
 		// Basic property binding.
 		usertypeDefinition["alchemyPriority"] = &TES3::CombatSession::alchemyPriority;
+		usertypeDefinition["castableSpells"] = sol::readonly_property(&TES3::CombatSession::spells);
 		usertypeDefinition["distance"] = &TES3::CombatSession::combatDistance;
 		usertypeDefinition["mobile"] = sol::readonly_property(&TES3::CombatSession::parentActor);
-		usertypeDefinition["lastUseTimestamp"] = &TES3::CombatSession::lastUseTimestamp;
+		usertypeDefinition["lastUseTimestamp"] = &TES3::CombatSession::mcpAlchemyLastUseTimestamp;
 		usertypeDefinition["potionUseFlag"] = &TES3::CombatSession::potionUseFlag;
 		usertypeDefinition["selectedAction"] = &TES3::CombatSession::nextAction;
 		usertypeDefinition["selectedItem"] = &TES3::CombatSession::selectedItem;
 		usertypeDefinition["selectedShield"] = sol::readonly_property(&TES3::CombatSession::selectedShield);
 		usertypeDefinition["selectedSpell"] = &TES3::CombatSession::selectedSpell;
 		usertypeDefinition["selectedWeapon"] = sol::readonly_property(&TES3::CombatSession::selectedWeapon);
-		usertypeDefinition["selectionPriority"] = &TES3::CombatSession::selectionPriority;
+		usertypeDefinition["spellPriority"] = &TES3::CombatSession::spellPriority;
 
 		// Basic function binding.
 		usertypeDefinition["selectAlchemyWithEffect"] = &TES3::CombatSession::chooseAlchemyWithEffect;

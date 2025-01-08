@@ -5,8 +5,8 @@
 --- A structure that contains base weather information shared by inheriting weather structures.
 --- @class tes3weather
 --- @field ambientDayColor tes3vector3 *Read-only*. The weather's ambient day color. The values can range from 0 to 1.
---- @field ambientLoopSound tes3sound *Read-only*. The weather's ambient looping sound.
---- @field ambientLoopSoundId string The weather's ambient looping sound ID.
+--- @field ambientLoopSound tes3sound *Read-only*. The weather's ambient looping sound. The current ambient sound should be changed by setting `ambientLoopSoundId`.
+--- @field ambientLoopSoundId string The weather's ambient looping sound ID. This can be changed, and the sound will switch over when the weather is active.
 --- @field ambientNightColor tes3vector3 *Read-only*. The weather's ambient night color. The values can range from 0 to 1.
 --- @field ambientPlaying boolean *Read-only*. The weather's ambient playing flag.
 --- @field ambientSunriseColor tes3vector3 *Read-only*. The weather's ambient sunrise color. The values can range from 0 to 1.
@@ -20,7 +20,7 @@
 --- @field fogSunriseColor tes3vector3 *Read-only*. The weather's fog sunrise color. The values can range from 0 to 1.
 --- @field fogSunsetColor tes3vector3 *Read-only*. The weather's fog sunset color. The values can range from 0 to 1.
 --- @field glareView number The weather's glare view.
---- @field index number *Read-only*. The weather's index ID. Maps to values in the [`tes3.weather`](https://mwse.github.io/MWSE/references/weather-types/) table.
+--- @field index tes3.weather *Read-only*. The weather's index ID. Maps to values in the [`tes3.weather`](https://mwse.github.io/MWSE/references/weather-types/) table.
 --- @field landFogDayDepth number The weather's land fog day depth value.
 --- @field landFogNightDepth number The weather's land fog night depth value.
 --- @field name string *Read-only*. The weather's user-friendly name, hardcoded in English to match the INI settings name. These values can be `"Ashstorm"`, `"Blight"`, `"Blizzard"`, `"Clear"`, `"Cloudy"`, `"Foggy"`, `"Overcast"`, `"Rain"`, `"Snow"`, or `"Thunderstorm"` as appropriate.

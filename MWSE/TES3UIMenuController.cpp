@@ -1,7 +1,14 @@
 #include "TES3UIMenuController.h"
 
+#include "TES3DataHandler.h"
+#include "TES3Game.h"
+#include "TES3MobManager.h"
 #include "TES3UIManager.h"
 #include "TES3UIElement.h"
+#include "TES3WaterController.h"
+#include "TES3WeatherController.h"
+#include "TES3WorldController.h"
+#include "TES3Cell.h"
 
 #include "LuaManager.h"
 #include "LuaUiObjectTooltipEvent.h"
@@ -9,6 +16,11 @@
 #include "BitUtil.h"
 
 namespace TES3::UI {
+	// Storage of the last data used for displayObjectTooltip, for use with updateObjectTooltip.
+	Object* MenuInputController::lastTooltipObject = nullptr;
+	ItemData* MenuInputController::lastTooltipItemData = nullptr;
+	int MenuInputController::lastTooltipCount = 0;
+
 	const auto TES3_MenuInputController_flushBufferedTextEvents = reinterpret_cast<void(__thiscall*)(MenuInputController*)>(0x58E9C0);
 	void MenuInputController::flushBufferedTextEvents() {
 		TES3_MenuInputController_flushBufferedTextEvents(this);
@@ -25,11 +37,6 @@ namespace TES3::UI {
 		// Reset text buffer to avoid previous input appearing immediately
 		flushBufferedTextEvents();
 	}
-
-	// Storage of the last data used for displayObjectTooltip, for use with updateObjectTooltip.
-	static TES3::Object * lastTooltipObject = nullptr;
-	static TES3::ItemData * lastTooltipItemData = nullptr;
-	static int lastTooltipCount = 0;
 
 	const auto TES3_UI_displayObjectTooltip = reinterpret_cast<void(__thiscall*)(MenuInputController*, TES3::Object*, TES3::ItemData*, int)>(0x590D90);
 	void MenuInputController::displayObjectTooltip(TES3::Object * object, TES3::ItemData * itemData, int count) {
@@ -134,6 +141,101 @@ namespace TES3::UI {
 		return statsMenuEnabled;
 	}
 
+	bool MenuController::getGodModeEnabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::GodModeEnabled);
+	}
+
+	void MenuController::setGodModeEnabled(bool state) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::GodModeEnabled, state);
+	}
+
+	bool MenuController::getAIDisabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::AIDisabled);
+	}
+
+	void MenuController::setAIDisabled(bool state) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::AIDisabled, state);
+		TES3::WorldController::get()->disableAI = state;
+	}
+
+	bool MenuController::getBordersEnabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::BordersEnabled);
+	}
+
+	void MenuController::setBordersEnabled(bool state) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::BordersEnabled, state);
+
+		const auto dataHandler = TES3::DataHandler::get();
+		if (dataHandler->currentInteriorCell == nullptr) {
+			dataHandler->setDisplayCellBorders(state);
+		}
+	}
+
+	bool MenuController::getSkyDisabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::SkyDisabled);
+	}
+
+	void MenuController::setSkyDisabled(bool disabled) {
+		const auto weatherController = TES3::WorldController::get()->weatherController;
+		if (disabled) {
+			weatherController->disableSky();
+		}
+		else {
+			weatherController->enableSky();
+		}
+	}
+
+	bool MenuController::getWorldDisabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::WorldDisabled);
+	}
+
+	void MenuController::setWorldDisabled(bool disabled) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::WorldDisabled, disabled);
+
+		const auto dataHandler = TES3::DataHandler::get();
+		dataHandler->worldObjectRoot->setAppCulled(disabled);
+		dataHandler->worldPickObjectRoot->setAppCulled(disabled);
+		dataHandler->worldLandscapeRoot->setAppCulled(disabled);
+	}
+
+	bool MenuController::getWireframeEnabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::WireframeEnabled);
+	}
+
+	void MenuController::setWireframeEnabled(bool state) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::WireframeEnabled, state);
+		TES3::Game::get()->wireframeProperty->setEnabled(state);
+	}
+
+	bool MenuController::getCollisionDisabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::CollisionDisabled);
+	}
+
+	void MenuController::setCollisionDisabled(bool state) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::CollisionDisabled, state);
+
+		const auto worldController = TES3::WorldController::get();
+		if (state) {
+			worldController->collisionEnabled = false;
+			worldController->mobManager->resetConstantVelocities();
+		}
+		else {
+			worldController->collisionEnabled = true;
+			worldController->mobManager->clampAllActors();
+		}
+	}
+
+	bool MenuController::getCollisionBoxesEnabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::CollisionBoxesEnabled);
+	}
+
+	void MenuController::setCollisionBoxesEnabled(bool enabled) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::CollisionBoxesEnabled, enabled);
+
+		TES3::DataHandler::get()->setActorCollisionBoxesDisplay(enabled, true);
+		TES3::WorldController::get()->collisionEnabled = enabled;
+	}
+
 	bool MenuController::getFogOfWarDisabled() const {
 		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::FogOfWarDisabled);
 	}
@@ -141,6 +243,64 @@ namespace TES3::UI {
 	void MenuController::setFogOfWarDisabled(bool state) {
 		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::FogOfWarDisabled, state);
 		updateFogOfWarRenderState();
+	}
+
+	bool MenuController::getMenusDisabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::MenusDisabled);
+	}
+
+	void MenuController::setMenusDisabled(bool disabled) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::MenusDisabled, disabled);
+
+		if (disabled) {
+			UI::hideCursor();
+			UI::closeDialogueMenu();
+		}
+	}
+
+	bool MenuController::getScriptsDisabled() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::ScriptsDisabled);
+	}
+
+	void MenuController::setScriptsDisabled(bool state) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::ScriptsDisabled, state);
+	}
+
+	bool MenuController::getShowPathGrid() const {
+		return BITMASK_TEST(gameplayFlags, MenuControllerGameplayFlags::ShowPathGrid);
+	}
+
+	void MenuController::setShowPathGrid(bool show) {
+		BITMASK_SET(gameplayFlags, MenuControllerGameplayFlags::ShowPathGrid, show);
+
+		const auto dataHandler = TES3::DataHandler::get();
+		if (dataHandler->currentInteriorCell) {
+			const auto pathGrid = dataHandler->currentInteriorCell->pathGrid;
+			if (pathGrid) {
+				if (show) {
+					pathGrid->show();
+				}
+				else {
+					pathGrid->hide();
+				}
+			}
+		}
+		else {
+			for (size_t i = 0; i < 9; ++i) {
+				auto cellDataPointer = dataHandler->exteriorCellData[i];
+				if (cellDataPointer && cellDataPointer->loadingFlags >= 1 && cellDataPointer->cell->pathGrid) {
+					const auto pathGrid = cellDataPointer->cell->pathGrid;
+					if (pathGrid) {
+						if (show) {
+							pathGrid->show();
+						}
+						else {
+							pathGrid->hide();
+						}
+					}
+				}
+			}
+		}
 	}
 
 	std::reference_wrapper<FontColor[FontColorId::MAX_ID + 1]> MenuController::getFontColors() {

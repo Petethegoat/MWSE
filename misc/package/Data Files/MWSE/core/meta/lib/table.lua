@@ -2,38 +2,43 @@
 -- More information: https://github.com/MWSE/MWSE/tree/master/docs
 
 --- @meta
---- This library provides generic functions for table manipulation. It provides all its functions inside the table table.
+--- This library provides generic functions for table manipulation. It provides all its functions inside the `table` table.
 --- @class tablelib
 table = {}
 
---- Inserts a given value through BinaryInsert into the table sorted by [, comp].
+--- Inserts a given value through BinaryInsert into an array-style `table` `t`, assuming `t` was sorted by `comp`.
 --- 
---- If 'comp' is given, then it must be a function that receives two table elements, and returns true when the first is less than the second, e.g. comp = function(a, b) return a > b end, will give a sorted table, with the biggest value on position 1. [, comp] behaves as in table.sort(table, value [, comp]) returns the index where 'value' was inserted
+--- If 'comp' is given, then it must be a function that receives two values in `t` and returns `true` when the first is less than the second.
+--- i.e., `comp(a,b) == true` would mean `a` is less than `b`.
+--- 
+--- If you want to sort in reverse order, you may set `comp = function(a, b) return a > b end`.
+--- 
+--- This function will return the index where `value` was inserted into `t`.
 --- @param t table No description yet available.
 --- @param value unknown No description yet available.
---- @param comp unknown? *Optional*. No description yet available.
+--- @param comp nil|fun(a, b):boolean *Optional*. No description yet available.
 --- @return number result No description yet available.
 function table.bininsert(t, value, comp) end
 
---- Performs a binary search for a given value.
+--- Performs a binary search for a given `value` inside a specified array-style `table` `tbl`.
 --- 
---- If the value is found: It returns a table holding all the mathing indices (e.g. { startindice,endindice } ) endindice may be the same as startindice if only one matching indice was found
+--- If the `value` is in `tbl`, then its corresponding `index` will be returned. Otherwise, this function will return `nil`.
+--- If `findAll == true`, then this `binsearch` will return the lowest and highest indices that store `value`. (These indices will be equal if there is only one copy of `value` in `tbl`.)
 --- 
---- If compval is given: then it must be a function that takes one value and returns a second value2, to be compared with the input value, e.g.: compvalue = function( value ) return value[1] end
+--- You can optionally provide a `comp` function. If provided, `binsearch` will treat `tbl` as if it had been sorted by `table.sort(tbl, comp)`.
 --- 
---- If reversed is set to true: then the search assumes that the table is sorted in reverse order (largest value at position 1) note when reversed is given compval must be given as well, it can be nil/_ in this case
---- 
---- Return value: on success: a table holding matching indices (e.g. { startindice,endindice } ) on failure: nil
---- @param t table No description yet available.
---- @param value unknown No description yet available.
---- @param compval unknown? *Optional*. No description yet available.
---- @param reversed unknown? *Optional*. No description yet available.
---- @return table result No description yet available.
-function table.binsearch(t, value, compval, reversed) end
+--- @param tbl table No description yet available.
+--- @param value unknown The value to search for.
+--- @param comp nil|fun(a, b):boolean *Optional*. The function used to sort `tbl`. If not provided, then the standard `<` operator will be used.
+--- @param findAll boolean? *Default*: `false`. If true,
+--- @return integer|nil index An `index` such that `tbl[index] == value`, if such an index exists. `nil` otherwise. If `findAll == true`, this will be the smallest index such that `tbl[index] == value`.
+--- @return integer|nil highestMatch If a match was found, and if `findAll == true`, then this will be the largest `index` such that `tbl[index] == vale`. `nil` otherwise.
+function table.binsearch(tbl, value, comp, findAll) end
 
 --- Returns a random element from the given table.
 --- @param t table No description yet available.
---- @return unknown result No description yet available.
+--- @return unknown value The randomly chosen value.
+--- @return unknown key The table key of the chosen value.
 function table.choice(t) end
 
 --- This clears all keys and values from a table, but preserves the allocated array/hash sizes. This is useful when a table, which is linked from multiple places, needs to be cleared and/or when recycling a table for use by the same context. This avoids managing backlinks, saves an allocation and the overhead of incremental array/hash part growth.
@@ -58,13 +63,38 @@ function table.copymissing(to, from) end
 --- @return table result No description yet available.
 function table.deepcopy(t) end
 
---- Returns true if the table is empty, otherwise, it returns false.
+--- Checks if a table is empty.
+--- 
+--- If `deepCheck == true`, then tables are allowed to have nested subtables, so long as those subtables are empty. e.g., `table.empty({ {}, {} }, true) == true`, while `table.empty({ {}, {} }) == false`.
 --- @param t table No description yet available.
---- @param deepCheck boolean? *Default*: `false`. If true, subtables will also be checked to see if they are empty.
+--- @param deepCheck boolean? *Default*: `false`. If `true`, subtables will also be checked to see if they are empty.
 --- @return boolean result No description yet available.
 function table.empty(t, deepCheck) end
 
---- Returns the key for a given value, or nil if the table does not contain the value.
+--- Creates a new table that results from using `f` to filter out elements of `t`. i.e., `table.filter(t,f)` will consist of only the pairs `k, v` of `t` for which `f(k, v)` was not `false` or `nil`.
+--- Any additional arguments will be passed to `f`. For example, `table.filter(t, f, 10)` would call `f(k, v, 10)` on each pair `k, v` of `t`.
+--- 
+--- !!! warning
+---  	Do not use this function on array-style tables, as it will not shift indices down after filtering out elements. Instead, you should use `table.filterarray` on array-style tables.
+--- 
+--- @param t table No description yet available.
+--- @param f fun(k: unknown, v: unknown, ...): boolean No description yet available.
+--- @param ... any Additional parameters to pass to `f`.
+--- @return table result The result of using `f` to filter out elements of `t`.
+function table.filter(t, f, ...) end
+
+--- Creates a new array-style table that results from using `f` to filter out elements of an array-style table `arr`. i.e., `table.filterarray(arr, f)` 
+--- will consist of only the pairs `i, v` of `arr` for which `f(i, v)` was not `false` or `nil`.
+--- Any additional arguments will be passed to `f`. For example, `table.filterarray(arr, f, 10)` would call `f(i, v, 10)` on each value pair `i, v` of `arr`.
+--- 
+--- When an element gets filtered out, the index of subsequent items will be shifted down, so that the resulting table plays nicely with the `#` operator and the `ipairs` function.
+--- @param arr table No description yet available.
+--- @param f fun(i: integer, v: unknown, ...): boolean No description yet available.
+--- @param ... any Additional parameters to pass to `f`.
+--- @return table result The result of using `f` to filter out elements of `t`.
+function table.filterarray(arr, f, ...) end
+
+--- Returns the key for a given value, or `nil` if the table does not contain the value.
 --- @param t table No description yet available.
 --- @param value unknown No description yet available.
 --- @return unknown result No description yet available.
@@ -95,9 +125,17 @@ function table.invert(t) end
 --- @return table keys An array of all table keys.
 function table.keys(t, sort) end
 
+--- Creates a new table consisting of key value pairs `k, f(k, v)`, where `k, v` is a pair in `t`.
+--- Any additional arguments will be passed to `f`. For example, `table.map(t, f, 10)` would call `f(k, v, 10)` on each value `v` of `t`.
+--- @param t table No description yet available.
+--- @param f fun(k: unknown, v: unknown, ...): unknown No description yet available.
+--- @param ... any Additional parameters to pass to `f`.
+--- @return table result The result of applying `f` to each value in `t`.
+function table.map(t, f, ...) end
+
 --- This creates a pre-sized table. This is useful for big tables if the final table size is known and automatic table resizing is too expensive.
---- @param narray number A hint for how many elements the table will have as a sequence.
---- @param nhash number A hint for how many other elements the table will have.
+--- @param narray number A hint for how many elements the array part of the table will have. Allocates fields for [0, narray].
+--- @param nhash number A hint for how many elements the hash part of the table will have.
 --- @return table newTable The pre-sized table that was created.
 function table.new(narray, nhash) end
 
@@ -106,6 +144,11 @@ function table.new(narray, nhash) end
 --- @param value unknown No description yet available.
 --- @return boolean result No description yet available.
 function table.removevalue(t, value) end
+
+--- Shuffles the table in place using the Fisher-Yates algorithm. Passing in table size as the second argument saves the function from having to get it itself.
+--- @param t table No description yet available.
+--- @param n integer? *Default*: `#t`. The length of the array.
+function table.shuffle(t, n) end
 
 --- Returns the number of elements inside the table. Unlike the length operator (#) this will work with any table.
 --- @param t table No description yet available.

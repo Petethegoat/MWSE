@@ -48,12 +48,15 @@
 #include "TES3Weapon.h"
 #include "TES3WorldController.h"
 
+#include "TES3UIMenuController.h"
+
 #include "BitUtil.h"
 #include "LuaUtil.h"
 #include "MemoryUtil.h"
 
 #include "LuaManager.h"
 #include "LuaObjectInvalidatedEvent.h"
+#include "LuaObjectCopiedEvent.h"
 
 #include "Log.h"
 
@@ -69,6 +72,19 @@ namespace TES3 {
 	const auto BaseObject_dtor = reinterpret_cast<TES3::BaseObject * (__thiscall*)(TES3::BaseObject*)>(0x4F0CA0);
 	void BaseObject::dtor() {
 		clearCachedLuaObject(this);
+
+		if (UI::MenuInputController::lastTooltipObject == this) {
+			UI::MenuInputController::lastTooltipObject = nullptr;
+			UI::MenuInputController::lastTooltipItemData = nullptr;
+			UI::MenuInputController::lastTooltipCount = 0;
+		}
+
+		using namespace mwse::lua::event;
+		if (ObjectCopiedEvent::ms_LastCopied == this || ObjectCopiedEvent::ms_LastCopiedFrom == this) {
+			ObjectCopiedEvent::ms_LastCopied = nullptr;
+			ObjectCopiedEvent::ms_LastCopiedFrom = nullptr;
+		}
+
 		BaseObject_dtor(this);
 	}
 
@@ -438,23 +454,23 @@ namespace TES3 {
 		baseObjectCache.clear();
 	}
 
-	void Object::copy(const Object* from, int unknown) {
-		vTable.object->copy(this, from, unknown);
+	void Object::copy(const Object* from, bool shareAIPackageConfig) {
+		vTable.object->copy(this, from, shareAIPackageConfig);
 	}
 
 	void Object::setID(const char* id) {
 		vTable.object->setID(this, id);
 	}
 
-	char* Object::getName() const {
+	const char* Object::getName() const {
 		return vTable.object->getName(this);
 	}
 
-	char* Object::getIconPath() const {
+	const char* Object::getIconPath() const {
 		return vTable.object->getIconPath(this);
 	}
 
-	char* Object::getModelPath() const {
+	const char* Object::getModelPath() const {
 		return vTable.object->getModelPath(this);
 	}
 
@@ -466,16 +482,16 @@ namespace TES3 {
 		return vTable.object->getSound(this);
 	}
 
-	char* Object::getRaceID() const {
+	const char* Object::getRaceID() const {
 		return vTable.object->getRaceID(this);
 	}
 
-	char* Object::getClassID() const {
+	const char* Object::getClassID() const {
 		return vTable.object->getClassID(this);
 	}
 
-	char* Object::getBirthsignID() const {
-		return vTable.object->getBirthsignID(this);
+	const char* Object::getFactionID() const {
+		return vTable.object->getFactionID(this);
 	}
 
 	Race* Object::getRace() const {
@@ -502,11 +518,11 @@ namespace TES3 {
 		return vTable.object->getLevel(this);
 	}
 
-	void Object::setDispositionRaw(signed char value) {
+	void Object::setDispositionRaw(int value) {
 		return vTable.object->setDispositionRaw(this, value);
 	}
 
-	int Object::modDisposition(signed int value) {
+	int Object::modDisposition(int value) {
 		return vTable.object->modDisposition(this, value);
 	}
 
@@ -514,7 +530,7 @@ namespace TES3 {
 		return vTable.object->getReputation(this);
 	}
 
-	int Object::setReputation(int reputation) {
+	void Object::setReputation(int reputation) {
 		return vTable.object->setReputation(this, reputation);
 	}
 
@@ -522,15 +538,15 @@ namespace TES3 {
 		return vTable.object->getDispositionRaw(this);
 	}
 
-	signed char Object::modFactionIndex(signed char value) {
-		return vTable.object->modFactionIndex(this, value);
+	void Object::modReputation(int value) {
+		return vTable.object->modReputation(this, value);
 	}
 
 	int Object::getType() const {
 		return vTable.object->getType(this);
 	}
 
-	char* Object::getTypeName() const {
+	const char* Object::getTypeName() const {
 		return vTable.object->getTypeName(this);
 	}
 
@@ -653,6 +669,10 @@ namespace TES3 {
 
 	NI::Node* Object::getSceneGraphNode() {
 		return vTable.object->getSceneGraphNode(this);
+	}
+
+	bool Object::loadMesh() {
+		return vTable.object->loadMesh(this);
 	}
 
 	Object* Object::skipDeletedObjects() {

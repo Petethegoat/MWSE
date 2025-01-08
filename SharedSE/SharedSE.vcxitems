@@ -14,10 +14,12 @@
     <ProjectCapability Include="SourceItemsFromImports" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)CodePatchUtil.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)ExceptionUtil.h" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)BasicLinkedList.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)StlList.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)MathUtil.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)MemoryUtil.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)NIAccumulator.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)NIAVObject.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)NIBinaryStream.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)NIBound.h" />
@@ -49,6 +51,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)NIRenderer.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)NIRTTI.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)NISkinInstance.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)NISortAdjustNode.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)NIStream.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)NISwitchNode.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)NITArray.h" />
@@ -68,10 +71,12 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)WindowsUtil.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)CodePatchUtil.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)MathUtil.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)MemoryUtil.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NIAVObject.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NIBinaryStream.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)NIBound.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NIBoundingBox.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NICamera.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NICollisionSwitch.cpp" />
@@ -88,6 +93,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)NIPick.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NIProperty.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NIQuaternion.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)NIRenderer.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NIRTTI.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NISkinInstance.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)NIStream.cpp" />

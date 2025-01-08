@@ -7,7 +7,10 @@
 timer.frame = {}
 
 --- Creates a timer that will finish the next frame.
---- @param callback function The callback function that will execute when the timer expires.
+--- 
+--- !!! tip
+--- 	It's recommended to study the [Object Lifetimes](../guides/object-lifetimes.md) guide. It describes how to safely use [tes3reference](../types/tes3reference.md) objects inside timer callbacks.
+--- @param callback fun(e: mwseTimerCallbackData) The callback function that will execute when the timer expires.
 --- @return mwseTimer timer No description yet available.
 function timer.frame.delayOneFrame(callback) end
 

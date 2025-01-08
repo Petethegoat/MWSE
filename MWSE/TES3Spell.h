@@ -57,6 +57,8 @@ namespace TES3 {
 		Effect effects[8]; // 0x34
 		unsigned int spellFlags; //  0xF4
 
+		static constexpr auto OBJECT_TYPE = ObjectType::Spell;
+
 		Spell();
 		~Spell();
 
@@ -95,6 +97,7 @@ namespace TES3 {
 
 		int calculateBasePuchaseCost() const;
 		float calculateCastChance_lua(sol::table params);
+		int getAutoCalcMagickaCost() const;
 
 		bool isActiveCast() const;
 

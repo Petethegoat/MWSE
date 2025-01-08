@@ -45,7 +45,7 @@ namespace se::cs {
 		void* unknown_0xB4;
 		void* unknown_0xB8;
 		bool(__thiscall* getIsEssential)(const Object*); // 0xBC
-		void* unknown_0xC0;
+		bool(__thiscall* getRespawns)(const Object*); // 0xC0
 		void* unknown_0xC4;
 		void* unknown_0xC8;
 		void* unknown_0xCC;
@@ -79,7 +79,7 @@ namespace se::cs {
 
 	struct Object : BaseObject {
 		NI::Node* sceneNode; // 0x10
-		int unknown_0x14;
+		BaseObject* unknown_0x14;
 		void* referenceToThis; // 0x18
 		Object* previousInCollection; // 0x1C
 		Object* nextInCollection; // 0x20
@@ -113,8 +113,8 @@ namespace se::cs {
 			return vtbl.object->getScale(this);
 		}
 
-		inline void setScale(float scale, bool something = true) {
-			vtbl.object->setScale(this, scale, something);
+		inline void setScale(float scale, bool clamp = true) {
+			vtbl.object->setScale(this, scale, clamp);
 		}
 
 		inline int getCount() const {
@@ -153,6 +153,10 @@ namespace se::cs {
 			return vtbl.object->getIsEssential(this);
 		}
 
+		inline bool getRespawns() const {
+			return vtbl.object->getRespawns(this);
+		}
+
 		inline int getLevel() const {
 			return vtbl.object->getLevel(this);
 		}
@@ -172,6 +176,9 @@ namespace se::cs {
 		inline void populateObjectWindow(HWND hWnd) const {
 			vtbl.object->populateObjectWindow(this, hWnd);
 		}
+
+		bool search(const std::string_view& needle, bool caseSensitive, std::regex* regex = nullptr) const;
+		bool searchWithInheritance(const std::string_view& needle, bool caseSensitive, std::regex* regex = nullptr) const;
 	};
 	static_assert(sizeof(Object) == 0x28, "CS::Object failed size validation");
 	static_assert(sizeof(Object_VirtualTable) == 0x138, "CS::Object's virtual table failed size validation");

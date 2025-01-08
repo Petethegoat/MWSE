@@ -24,19 +24,24 @@
 --- @field nextWeather tes3weatherAsh|tes3weatherBlight|tes3weatherBlizzard|tes3weatherClear|tes3weatherCloudy|tes3weatherFoggy|tes3weatherOvercast|tes3weatherRain|tes3weatherSnow|tes3weatherThunder *Read-only*. The next weather.
 --- @field particlesActive tes3weatherControllerParticle[] *Read-only*. Provides a list of active weather particles.
 --- @field particlesInactive tes3weatherControllerParticle[] *Read-only*. Provides a list of inactive weather particles.
---- @field sceneRainRoot niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. Provides read-only access to the scene rain root NiNode.
---- @field sceneSkyLight niDirectionalLight *Read-only*. Provides read-only access to the scene sky light directional light.
---- @field sceneSkyRoot niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. Provides read-only access to the scene sky root NiNode.
---- @field sceneSnowRoot niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. Provides read-only access to the scene snow root NiNode.
---- @field sceneStormRoot niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. Provides read-only access to the scene storm root NiNode.
---- @field sceneSunBase niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. Provides read-only access to the scenesun base NiNode.
---- @field sceneSunGlare niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. Provides read-only access to the scene sun glare NiNode.
---- @field sceneSunVis niBillboardNode|niCollisionSwitch|niNode|niSwitchNode *Read-only*. Provides read-only access to the scene sun vis NiNode.
+--- @field precipitationFallSpeed number The z component of the rain or snow fall particle velocity (not including blizzards). Snow fall velocity is also multiplied by `snowFallSpeedScale`. This value is initialized by the "Precipitation Gravity" entry in morrowind.ini.
+--- @field sceneAtmosphere niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides access to the scene atmosphere skydome NiNode.
+--- @field sceneClouds niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides access to the scene clouds root NiNode.
+--- @field sceneNightSky niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides access to the scene night sky (stars and nebula) NiNode.
+--- @field sceneRainRoot niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides access to the scene rain root NiNode.
+--- @field sceneSkyLight niDirectionalLight *Read-only*. Provides access to the scene sky light directional light.
+--- @field sceneSkyRoot niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides access to the scene sky root NiNode.
+--- @field sceneSnowRoot niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides access to the scene snow root NiNode.
+--- @field sceneStormRoot niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides access to the scene storm root NiNode.
+--- @field sceneSunBase niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides read-only access to the scenesun base NiNode.
+--- @field sceneSunGlare niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides read-only access to the scene sun glare NiNode.
+--- @field sceneSunVis niBSAnimationNode|niBSParticleNode|niBillboardNode|niCollisionSwitch|niNode|niSortAdjustNode|niSwitchNode *Read-only*. Provides read-only access to the scene sun vis NiNode.
 --- @field secunda tes3moon *Read-only*. Provides read-only access to the Secunda moon object.
 --- @field skyPostSunriseTime number The sky has one color for day and night states each. The day color will be used when the game hour is between `skyPostSunriseTime` and `skyPreSunsetTime`. This corresponds to the setting of the same name in Morrowind.ini file.
 --- @field skyPostSunsetTime number The sky has one color for day and night states each. The night color will be used when the game hour is between `skyPostSunsetTime` and `skyPreSunriseTime`. This corresponds to the setting of the same name in Morrowind.ini file.
 --- @field skyPreSunriseTime number The sky has one color for day and night states each. The night color will be used when the game hour is between `skyPostSunsetTime` and `skyPreSunriseTime`. This corresponds to the setting of the same name in Morrowind.ini file.
 --- @field skyPreSunsetTime number The sky has one color for day and night states each. The day color will be used when the game hour is between `skyPostSunriseTime` and `skyPreSunsetTime`. This corresponds to the setting of the same name in Morrowind.ini file.
+--- @field snowFallSpeedScale number A multipler for the z component of snow fall particle velocity (not including blizzards). The z component is set by `precipitationFallSpeed * snowFallSpeedScale`. This value is initialized by the "Snow Gravity Scale" entry in morrowind.ini.
 --- @field starsFadingDuration number The stars will fade in `starsPostSunsetStart` hours after the sunset. They fade out `starsPreSunriseFinish` hours before sunrise. This value represents the duration of the fading. This corresponds to the setting of the same name in Morrowind.ini file.
 --- @field starsPostSunsetStart number The stars will start to fade in (appear) `starsPostSunsetStart` hours before sunrise. This corresponds to the setting of the same name in Morrowind.ini file.
 --- @field starsPreSunriseFinish number The stars will start to fade out (disappear) `starsPreSunriseFinish` hours before sunrise. This corresponds to the setting of the same name in Morrowind.ini file.
@@ -60,7 +65,7 @@
 --- @field underwaterNightFog number The underwater night fog value.
 --- @field underwaterSunriseFog number The underwater sunrise fog value.
 --- @field underwaterSunsetFog number The underwater sunset fog value.
---- @field weathers tes3weatherAsh[]|tes3weatherBlight[]|tes3weatherBlizzard[]|tes3weatherClear[]|tes3weatherCloudy[]|tes3weatherFoggy[]|tes3weatherOvercast[]|tes3weatherRain[]|tes3weatherSnow[]|tes3weatherThunder[] *Read-only*. Array-style table for the different weather types. Each object in the table is a [tes3weather](https://mwse.github.io/MWSE/types/tes3weather/). The indices in the table map to the values in the [`tes3.weather`](https://mwse.github.io/MWSE/references/weather-types/) table.
+--- @field weathers table<tes3.weather, tes3weatherAsh|tes3weatherBlight|tes3weatherBlizzard|tes3weatherClear|tes3weatherCloudy|tes3weatherFoggy|tes3weatherOvercast|tes3weatherRain|tes3weatherSnow|tes3weatherThunder> *Read-only*. Array-style table with weather objects for each weather type. The indices in the table map to the values in the [`tes3.weather`](https://mwse.github.io/MWSE/references/weather-types/) table.
 --- @field windVelocityCurrWeather tes3vector3 The wind velocity for the current weather.
 --- @field windVelocityNextWeather tes3vector3 The wind velocity for the next weather.
 tes3weatherController = {}
@@ -70,11 +75,11 @@ tes3weatherController = {}
 function tes3weatherController:calcSunDamageScalar() end
 
 --- Immediately switches the weather to the provided weather parameter.
---- @param weatherId number Maps to values in the [`tes3.weather`](https://mwse.github.io/MWSE/references/weather-types/) table.
+--- @param weatherId tes3.weather Maps to values in the [`tes3.weather`](https://mwse.github.io/MWSE/references/weather-types/) table.
 function tes3weatherController:switchImmediate(weatherId) end
 
 --- Transitions the weather to the provided weather parameter based on the weather controller settings.
---- @param weatherId number Maps to values in the [`tes3.weather`](https://mwse.github.io/MWSE/references/weather-types/) table.
+--- @param weatherId tes3.weather Maps to values in the [`tes3.weather`](https://mwse.github.io/MWSE/references/weather-types/) table.
 function tes3weatherController:switchTransition(weatherId) end
 
 --- Updates the weather controller visuals. This should be called after any weather transitions.

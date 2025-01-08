@@ -8,22 +8,28 @@
 --- @field armorScalar number *Read-only*. This is the maximal contribution to actor's total Armor Rating for this piece of armor. For vanilla armors, this is slot based. Cuirasses have `armorScalar = 0.3`, helmets, pauldrons, greaves, boots and shields have `0.1`, while gauntlets and bracers have `armorScalar = 0.05`.
 --- @field enchantCapacity number The object's enchantment capacity.
 --- @field enchantment tes3enchantment The enchantment used by the object.
---- @field icon string The path to the object's icon.
+--- @field icon string The path to the object's icon. Relative to `Data Files\\icons\\`.
+--- @field isClosedHelmet boolean *Read-only*. This property is `true` for closed helmets, which are unequippable for beast races. Closed helmets cover the head body part, while open helmets cover hair. Always `false` for armor other than helmets.
+--- 
+--- See also [isWearableByBeasts](https://mwse.github.io/MWSE/types/tes3armor/#iswearablebybeasts).
 --- @field isLeftPart boolean Determines if the armor is the left part of a pair.
+--- @field isUsableByBeasts boolean *Read-only*. If this property is `true`, beast races can wear this piece of armor. This property is `false` for closed helmets and armor that covers feet.
+--- 
+--- See also [isClosedHelmet](https://mwse.github.io/MWSE/types/tes3armor/#isclosedhelmet).
 --- @field maxCondition number The object's maximum condition.
---- @field mesh string The path to the object's mesh.
+--- @field mesh string The path to the object's mesh. Relative to `Data Files\\meshes\\`.
 --- @field name string The player-facing name for the object.
 --- @field parts tes3wearablePart[] *Read-only*. An array-style table of the [`tes3wearablePart`](https://mwse.github.io/MWSE/types/tes3wearablePart/) data on the object.
 --- @field script tes3script The script that runs on the object.
---- @field slot number The slot used by the armor. Maps to [`tes3.armorSlot`](https://mwse.github.io/MWSE/references/armor-slots/) namespace.
+--- @field slot tes3.armorSlot The slot used by the armor. Maps to [`tes3.armorSlot`](https://mwse.github.io/MWSE/references/armor-slots/) namespace.
 --- @field slotName string *Read-only*. The name of the slot used by the armor.
 --- @field value number The value of the object.
 --- @field weight number The weight of the object.
---- @field weightClass number *Read-only*. The weight class of the armor. This value maps to [`tes3.armorWeightClass`](https://mwse.github.io/MWSE/references/armor-weight-classes/) constants.
+--- @field weightClass tes3.armorWeightClass *Read-only*. The weight class of the armor. This value maps to [`tes3.armorWeightClass`](https://mwse.github.io/MWSE/references/armor-weight-classes/) constants.
 tes3armor = {}
 
 --- Calculates what armor rating is provided for a given mobile actor.
---- @param mobile tes3mobileActor|tes3mobileCreature|tes3mobileNPC|tes3mobilePlayer No description yet available.
+--- @param mobile tes3mobileCreature|tes3mobileNPC|tes3mobilePlayer No description yet available.
 function tes3armor:calculateArmorRating(mobile) end
 
 --- Creates a copy of this object.

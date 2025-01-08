@@ -27,7 +27,7 @@ return {
 				name = "noResultsText",
 				type = "string",
 				optional = true,
-				description = "The text used for the message that gets shown to the player if no items have been found in the inventory. The default text is equivalent to the `sInventorySelectNoItems` GMST value, unless `\"ingredients\"` or `\"soulgemFilled\"` has been assigned to `filter`, in which case the default text is equivalent to either the `sInventorySelectNoIngredients` or `sInventorySelectNoSoul` GMST value respectively."
+				description = "The text used for the message that gets shown to the player if no items have been found in the inventory. The default text is equivalent to the `sInventorySelectNoItems` GMST value, unless `\"ingredients\"` or `\"soulGemFilled\"` has been assigned to `filter`, in which case the default text is equivalent to either the `sInventorySelectNoIngredients` or `sInventorySelectNoSoul` GMST value respectively."
 			},
 			{
 				name = "noResultsCallback",
@@ -37,7 +37,7 @@ return {
 			},
 			{
 				name = "filter",
-				type = "function|string",
+				type = "string|fun(params: tes3ui.showInventorySelectMenu.filterParams): boolean",
 				optional = true,
 				description = [[This determines which items should be shown in the inventory select menu. Accepts either a string or a function.
 
@@ -50,27 +50,15 @@ return {
 		- `mortar`: Only [tes3apparatus](https://mwse.github.io/MWSE/types/tes3apparatus/) items of type `tes3.apparatusType.mortarAndPestle` will be shown.
 		- `quickUse`: Only items that can be assigned as quick keys will be shown.
 		- `retort`: Only [tes3apparatus](https://mwse.github.io/MWSE/types/tes3apparatus/) items of type `tes3.apparatusType.retort` will be shown.
-		- `soulgemFilled`: Only filled soulgems will be shown.
+		- `soulGemFilled`: Only filled soulgems will be shown.
 
-		If assigning a function it will be called when determining if an item should be added to the inventory select menu. A table `filterParams` will be passed to this function. Returning `true` from this function will add the item to the inventory select menu, whereas returning `false` will prevent it from being added.
-
-		- `filterParams` (table)
-			- `item` ([tes3item](https://mwse.github.io/MWSE/types/tes3item/)): The item that is being filtered.
-			- `itemData` ([tes3itemData](https://mwse.github.io/MWSE/types/tes3itemData/)): The item data of the item that is being filtered. Can be `nil`.
-]],
+		If assigning a custom function it will be called when determining if an item should be added to the inventory select menu. Returning `true` from this function will add the item to the inventory select menu, whereas returning `false` will prevent it from being added.]],
 			},
 			{
 				name = "callback",
-				type = "function",
+				type = "fun(params: tes3ui.showInventorySelectMenu.callbackParams)",
 				optional = true,
-				description = [[A function which will be called once the inventory select menu has been closed, including when no item has been selected. A table `callbackParams` will be passed to this function.
-		- `callbackParams` (table)
-			- `item` ([tes3item](https://mwse.github.io/MWSE/types/tes3item/)): The item that has been selected. Can be `nil`.
-			- `itemData` ([tes3itemData](https://mwse.github.io/MWSE/types/tes3itemData/)): The item data of the item that has been selected. Can be `nil`.
-			- `count` (number): The number of items that have been selected. Only valid if `item` is not `nil`.
-			- `inventory` ([tes3inventory](https://mwse.github.io/MWSE/types/tes3inventory/)): The inventory containing the items.
-			- `actor` ([tes3actor](https://mwse.github.io/MWSE/types/tes3actor/)): The actor containing the inventory.
-]],
+				description = [[A function which will be called once the inventory select menu has been closed, including when no item has been selected.]],
 			},
 		},
 	}},

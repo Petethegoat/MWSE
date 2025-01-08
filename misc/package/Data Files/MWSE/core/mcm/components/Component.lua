@@ -2,17 +2,33 @@
 	Base Object for all MCM components, such as categories and settings
 ]]--
 
+--- These types have annotations in the core\meta\ folder. Let's stop the warning spam here in the implementation.
+--- The warnings arise because each field set here is also 'set' in the annotations in the core\meta\ folder.
+--- @diagnostic disable: duplicate-set-field
+
+-- MCM Components can't be used before "initialized" event as they read GMST values.
+if not tes3.isInitialized() then
+	error(debug.traceback(
+		"Trying to use an MCM Component before \"modConfigReady\" event triggered!"
+	))
+end
+
+--- @class mwseMCMComponent
 local Component = {}
 Component.componentType = "Component"
 Component.paddingBottom = 4
 Component.indent = 12
-Component.sOK = tes3.findGMST(tes3.gmst.sOK).value
-Component.sCancel = tes3.findGMST(tes3.gmst.sCancel).value
-Component.sYes = tes3.findGMST(tes3.gmst.sYes).value
-Component.sNo = tes3.findGMST(tes3.gmst.sNo).value
+Component.sOK = tes3.findGMST(tes3.gmst.sOK).value --[[@as string]]
+Component.sCancel = tes3.findGMST(tes3.gmst.sCancel).value --[[@as string]]
+Component.sYes = tes3.findGMST(tes3.gmst.sYes).value --[[@as string]]
+Component.sNo = tes3.findGMST(tes3.gmst.sNo).value --[[@as string]]
+Component.sOn = tes3.findGMST(tes3.gmst.sOn).value --[[@as string]]
+Component.sOff = tes3.findGMST(tes3.gmst.sOff).value --[[@as string]]
 
 -- CONTROL METHODS
 
+--- @param data mwseMCMComponent.new.data?
+--- @return mwseMCMComponent component
 function Component:new(data)
 	local t = data or {}
 
@@ -23,14 +39,12 @@ function Component:new(data)
 
 	setmetatable(t, self)
 	self.__index = self
+	--- @cast t mwseMCMComponent
 	return t
 end
 
-function Component:__index(key)
-	return self[key]
-end
-
 -- Prints the component table to the log
+--- @param component table?
 function Component:printComponent(component)
 	mwse.log("{")
 	for key, val in pairs(component or self) do
@@ -43,58 +57,43 @@ function Component:printComponent(component)
 	mwse.log("}")
 end
 
-function Component:prepareData(data)
-	data = data or {}
-	if type(data) == "string" then
-		data = { label = data }
-	end
-	data.parentComponent = self
-	return data
-end
 
-function Component:getComponent(componentData)
+--- @alias mwseMCMComponentClass
+---| "Category" # Categories
+---| "SideBySideBlock"
+---| "ActiveInfo" # Infos
+---| "Hyperlink"
+---| "Info"
+---| "MouseOverInfo"
+---| "ExclusionsPage" # Pages
+---| "FilterPage"
+---| "MouseOverPage"
+---| "Page"
+---| "SideBarPage"
+---| "Button" # Settings
+---| "DecimalSlider"
+---| "Dropdown"
+---| "KeyBinder"
+---| "OnOffButton"
+---| "ParagraphField"
+---| "Setting"
+---| "Slider"
+---| "TextField"
+---| "YesNoButton"
+---| "Template" # Templates
 
-	-- if componentType field is set then we've already built it
-	if componentData.componentType then
-		return componentData
-	end
 
-	if not componentData.class then
-		mwse.log("ERROR: No class found for component:")
-		self:printComponent(componentData)
-	end
-	local component
-	local classPaths = require("mcm.classPaths")
-	for _, path in pairs(classPaths.components) do
-		local classPath = (path .. componentData.class)
-		local fullPath = lfs.currentdir() .. classPaths.basePath .. classPath .. ".lua"
-		local fileExists = lfs.attributes(fullPath, "mode") == "file"
-
-		if fileExists then
-			component = require(classPath)
-			break
-		end
-	end
-	if component then
-		self:prepareData(componentData)
-		return component:new(componentData)
-	else
-		mwse.log("Error: class %s not found", componentData.class)
-	end
-end
-
+--- @param mouseOverList tes3uiElement[]?
 function Component:registerMouseOverElements(mouseOverList)
-	if mouseOverList then
-		for _, element in ipairs(mouseOverList) do
-			element:register("mouseOver", function(e)
-				event.trigger("MCM:MouseOver", self)
-				e.source:forwardEvent(e)
-			end)
-			element:register("mouseLeave", function(e)
-				event.trigger("MCM:MouseLeave")
-				e.source:forwardEvent(e)
-			end)
-		end
+	for _, element in ipairs(mouseOverList or {}) do
+		element:register("mouseOver", function(e)
+			event.trigger("MCM:MouseOver", {component = self})
+			e.source:forwardEvent(e)
+		end)
+		element:register("mouseLeave", function(e)
+			event.trigger("MCM:MouseLeave")
+			e.source:forwardEvent(e)
+		end)
 	end
 end
 
@@ -110,6 +109,7 @@ function Component:enable()
 	end
 end
 
+--- @return boolean result
 function Component:checkDisabled()
 	local disabled = (self.inGameOnly == true and not tes3.player)
 	return disabled
@@ -117,6 +117,7 @@ end
 
 -- UI METHODS
 
+--- @param parentBlock tes3uiElement
 function Component:createLabelBlock(parentBlock)
 	local block = parentBlock:createBlock({ id = tes3ui.registerID("LabelBlock") })
 	block.flowDirection = "top_to_bottom"
@@ -131,27 +132,31 @@ function Component:createLabelBlock(parentBlock)
 	table.insert(self.mouseOvers, block)
 end
 
+--- @param parentBlock tes3uiElement
 function Component:createLabel(parentBlock)
-	if self.label then
-		self:createLabelBlock(parentBlock)
-
-		local id = ("Label: " .. self.label)
-		local label = self.elements.labelBlock:createLabel({ id = tes3ui.registerID(id), text = self.label })
-		label.borderBottom = self.paddingBottom
-		label.borderAllSides = 0
-		label.paddingAllSides = 0
-		label.wrapText = true
-		label.widthProportional = 1.0
-		label.alignY = 0.5
-
-		self.elements.label = label
-		table.insert(self.mouseOvers, label)
+	if not self.label then
+		return
 	end
+
+	self:createLabelBlock(parentBlock)
+
+	local id = ("Label: " .. self.label)
+	local label = self.elements.labelBlock:createLabel({ id = tes3ui.registerID(id), text = self.label })
+	label.borderBottom = self.paddingBottom
+	label.borderAllSides = 0
+	label.paddingAllSides = 0
+	label.wrapText = true
+	label.widthProportional = 1.0
+	label.childAlignY = 0.5
+
+	self.elements.label = label
+	table.insert(self.mouseOvers, label)
 end
 
 --[[
 	Wraps up the entire component
 ]]
+--- @param parentBlock tes3uiElement
 function Component:createOuterContainer(parentBlock)
 	local outerContainer
 	outerContainer = parentBlock:createBlock({ id = tes3ui.registerID("OuterContainer") })
@@ -168,6 +173,7 @@ function Component:createOuterContainer(parentBlock)
 	table.insert(self.mouseOvers, outerContainer)
 end
 
+--- @param parentBlock tes3uiElement
 function Component:createInnerContainer(parentBlock)
 	local innerContainer = parentBlock:createBlock({ id = tes3ui.registerID("InnerContainer") })
 	innerContainer.widthProportional = parentBlock.widthProportional
@@ -181,6 +187,7 @@ function Component:createInnerContainer(parentBlock)
 	self.elements.innerContainer = innerContainer
 end
 
+--- @param parentBlock tes3uiElement
 function Component:create(parentBlock)
 
 	self.elements = {}
@@ -204,6 +211,12 @@ function Component:create(parentBlock)
 	if self.postCreate then
 		self:postCreate()
 	end
+end
+
+-- Returns the string that should be shown in the MouseOverInfo
+---@return string?
+function Component:getMouseOverText()
+	return self.description
 end
 
 return Component

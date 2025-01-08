@@ -13,25 +13,28 @@ mwseTimerController = {}
 function mwseTimerController.new(startTime) end
 
 --- Creates a timer for the given Timer Controller.
+--- 
+--- !!! tip
+--- 	It's recommended to study the [Object Lifetimes](../guides/object-lifetimes.md) guide. It describes how to safely use [tes3reference](../types/tes3reference.md) objects inside timer callbacks.
 --- @param params mwseTimerController.create.params This table accepts the following values:
 --- 
---- `duration`: number — No description yet available.
+--- `duration`: number — Duration of the timer. The method of time passing depends on the timer type.
 --- 
---- `callback`: function|string — No description yet available.
+--- `callback`: fun(e: mwseTimerCallbackData)|string — The callback function that will execute when the timer expires. If starting a registered timer, this needs to be the `name` string passed to `timer.register`.
 --- 
---- `iterations`: integer? — *Default*: `1`. No description yet available.
+--- `iterations`: integer? — *Default*: `1`. The number of iterations to run. Use `-1` for infinite looping.
 --- 
---- `persists`: boolean? — *Default*: `true`. No description yet available.
+--- `persist`: boolean? — *Default*: `true`. Registering a timer with persist flag set to `true` will serialize the callback string in the save to persist between sessions. Only a registered timer will persist between sessions. See `timer.register()`.
 --- 
---- `data`: table|nil — *Default*: `nil`. No description yet available.
+--- `data`: table|nil — *Default*: `nil`. Data to be attached to the timer. If this is a persistent timer, the data must be json-serializable, matching the same limitations as data stored on references.
 --- @return mwseTimer timer No description yet available.
 function mwseTimerController:create(params) end
 
 ---Table parameter definitions for `mwseTimerController.create`.
 --- @class mwseTimerController.create.params
---- @field duration number No description yet available.
---- @field callback function|string No description yet available.
---- @field iterations integer? *Default*: `1`. No description yet available.
---- @field persists boolean? *Default*: `true`. No description yet available.
---- @field data table|nil *Default*: `nil`. No description yet available.
+--- @field duration number Duration of the timer. The method of time passing depends on the timer type.
+--- @field callback fun(e: mwseTimerCallbackData)|string The callback function that will execute when the timer expires. If starting a registered timer, this needs to be the `name` string passed to `timer.register`.
+--- @field iterations integer? *Default*: `1`. The number of iterations to run. Use `-1` for infinite looping.
+--- @field persist boolean? *Default*: `true`. Registering a timer with persist flag set to `true` will serialize the callback string in the save to persist between sessions. Only a registered timer will persist between sessions. See `timer.register()`.
+--- @field data table|nil *Default*: `nil`. Data to be attached to the timer. If this is a persistent timer, the data must be json-serializable, matching the same limitations as data stored on references.
 

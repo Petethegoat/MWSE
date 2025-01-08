@@ -8,7 +8,7 @@ namespace TES3 {
 	namespace BodyPartFlag {
 		enum Flag : unsigned int {
 			Female = 0x1,
-			Playable = 0x2
+			NotPlayable = 0x2, // Note: Flag is presented as Playable in the CS, but the bit is set when not playable.
 		};
 
 	}
@@ -21,6 +21,8 @@ namespace TES3 {
 		unsigned char flags; // 0x3A
 		signed char partType; // 0x3B
 		NI::Pointer<NI::Node> mirroredNode; // 0x3C // Type: BSMirroredNode.
+
+		static constexpr auto OBJECT_TYPE = ObjectType::Bodypart;
 
 		BodyPart() = delete;
 		~BodyPart() = delete;

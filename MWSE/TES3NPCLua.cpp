@@ -37,11 +37,11 @@ namespace mwse::lua {
 			usertypeDefinition["health"] = &TES3::NPC::health;
 			usertypeDefinition["level"] = &TES3::NPC::level;
 			usertypeDefinition["magicka"] = &TES3::NPC::magicka;
-			usertypeDefinition["reputation"] = &TES3::NPC::reputation;
-			usertypeDefinition["class"] = sol::property(&TES3::NPC::getClass, &TES3::NPC::setClass);
+			usertypeDefinition["reputation"] = &TES3::NPC::initialReputation;
+			usertypeDefinition["class"] = &TES3::NPC::class_;
 			usertypeDefinition["faction"] = &TES3::NPC::faction;
 			usertypeDefinition["race"] = &TES3::NPC::race;
-			usertypeDefinition["script"] = sol::readonly_property(&TES3::NPC::getScript);
+			usertypeDefinition["script"] = &TES3::NPC::script;
 			usertypeDefinition["soul"] = sol::readonly_property(&TES3::NPC::getSoulValue);
 
 			// Indirect bindings to unions and arrays.
@@ -66,10 +66,13 @@ namespace mwse::lua {
 			usertypeDefinition["female"] = sol::property(&TES3::NPC::getIsFemale, &TES3::NPC::setIsFemale);
 			usertypeDefinition["autoCalc"] = sol::property(&TES3::NPC::getAutoCalc, &TES3::NPC::setAutoCalc);
 
+			// Utility function bindings.
+			//usertypeDefinition["createCopy"] = &TES3::NPC::createCopy_lua<TES3::NPC>; // NPC serialization does not support saving new NPCs at the moment.
+
 			// TODO: Deprecated. Remove before 2.1-stable.
 			usertypeDefinition["model"] = sol::property(&TES3::NPC::getModelPath, &TES3::NPC::setModelPath);
 			usertypeDefinition["essential"] = sol::property(&TES3::NPC::getIsEssential_legacy, &TES3::NPC::setIsEssential_legacy);
-			usertypeDefinition["factionIndex"] = &TES3::NPC::reputation;
+			usertypeDefinition["factionIndex"] = &TES3::NPC::initialReputation;
 			usertypeDefinition["respawns"] = sol::property(&TES3::NPC::getRespawns_legacy, &TES3::NPC::setRespawns_legacy);
 		}
 
@@ -101,6 +104,7 @@ namespace mwse::lua {
 
 			// Convenient base object access.
 			usertypeDefinition["class"] = sol::readonly_property(&TES3::NPCInstance::getBaseClass);
+			usertypeDefinition["factionRank"] = sol::readonly_property(&TES3::NPCInstance::getBaseFactionRank);
 			usertypeDefinition["faction"] = sol::readonly_property(&TES3::NPCInstance::getBaseFaction);
 			usertypeDefinition["race"] = sol::readonly_property(&TES3::NPCInstance::getBaseRace);
 			usertypeDefinition["script"] = sol::readonly_property(&TES3::NPCInstance::getBaseScript);

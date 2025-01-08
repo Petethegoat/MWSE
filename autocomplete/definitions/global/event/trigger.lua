@@ -2,14 +2,14 @@ return {
 	type = "function",
 	description = [[Triggers an event. This can be used to trigger custom events with specific data.]],
 	arguments = {
-		{ name = "eventId", type = "string" },
+		{ name = "eventId", type = "string|tes3.event" },
 		{ name = "payload", type = "table", optional = true },
 		{
 			name = "options",
 			type = "table",
 			optional = true,
 			tableParams = {
-				{ name = "filter", type = "userdata|string|number", optional = true, description = "Assigning a filter will make the event callbacks with filters matching this one to be executed first. All the other unfiltered callbacks are executed after." }, --try other types: "userdata|any"...
+				{ name = "filter", type = "userdata|string|number|tes3baseObject", optional = true, description = "Assigning a filter will make the event callbacks with filters matching this one to be executed first. All the other unfiltered callbacks are executed after." }, --try other types: "userdata|any"...
 			}
 		},
 	},

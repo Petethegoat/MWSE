@@ -1,24 +1,28 @@
 --[[
-	OnOffButton: Toggles a variable between true and false, showing "On" or "Off" 
+	OnOffButton: Toggles a variable between true and false, showing "On" or "Off"
 	in the button text
 
 ]]--
 
-local Parent = require("mcm.components.settings.Button")
-local OnOffButton = Parent:new()
-OnOffButton.defaultSetting = false
+--- These types have annotations in the core\meta\ folder. Let's stop the warning spam here in the implementation.
+--- The warnings arise because each field set here is also 'set' in the annotations in the core\meta\ folder.
+--- @diagnostic disable: duplicate-set-field
 
-function OnOffButton:getText()
-	local text = (self.variable.value and tes3.findGMST(tes3.gmst.sOn).value or tes3.findGMST(tes3.gmst.sOff).value)
-	return text
+local Parent = require("mcm.components.settings.Button")
+
+
+
+--- @class mwseMCMOnOffButton
+local OnOffButton = Parent:new()
+
+function OnOffButton:convertToLabelValue(variableValue)
+	return variableValue and self.sOn or self.sOff
 end
 
 function OnOffButton:press()
 	-- Toggle variable
 	self.variable.value = not self.variable.value
-	-- Set button text
-	self:setText(self:getText())
-	-- Do this after changing the variable so the callback is correct
+	-- Do this after changing the variable so the callback is correct, and the text is updated
 	self:update()
 end
 

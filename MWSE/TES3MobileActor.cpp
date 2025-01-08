@@ -13,6 +13,8 @@
 #include "LuaDamageEvent.h"
 #include "LuaDamageHandToHandEvent.h"
 #include "LuaDeathEvent.h"
+#include "LuaEquipEvent.h"
+#include "LuaEquippedEvent.h"
 #include "LuaJumpEvent.h"
 #include "LuaMobileObjectCollisionEvent.h"
 
@@ -20,6 +22,8 @@
 #include "TES3ActorAnimationController.h"
 #include "TES3Alchemy.h"
 #include "TES3AudioController.h"
+#include "TES3Cell.h"
+#include "TES3CombatSession.h"
 #include "TES3Enchantment.h"
 #include "TES3DataHandler.h"
 #include "TES3GameSetting.h"
@@ -29,6 +33,7 @@
 #include "TES3MobManager.h"
 #include "TES3MobilePlayer.h"
 #include "TES3ItemData.h"
+#include "TES3Race.h"
 #include "TES3Spell.h"
 #include "TES3Reference.h"
 #include "TES3WorldController.h"
@@ -165,6 +170,10 @@ namespace TES3 {
 		return calculateArmorRating(nullptr);
 	}
 
+	AnimationData* MobileActor::getAnimationData() const {
+		return vTable.mobileActor->getAnimationAttachment(this);
+	}
+
 	const auto TES3_MobileActor_applyPhysicalHit = reinterpret_cast<void(__thiscall*)(MobileActor*, MobileActor*, MobileActor*, float, float, MobileProjectile*, bool)>(0x5568F0);
 	void MobileActor::applyPhysicalHit(MobileActor* attacker, MobileActor* defender, float damage, float swing, MobileProjectile* projectile, bool alwaysPlayHitVoice) {
 		// Setup damage event data.
@@ -196,6 +205,70 @@ namespace TES3 {
 
 	void MobileActor::removeFiredProjectiles(bool includeSpellProjectiles) {
 		TES3::WorldController::get()->mobManager->projectileManager->removeProjectilesFiredByActor(this, includeSpellProjectiles);
+	}
+
+	const auto TES3_MobileActor_resurrect = reinterpret_cast<void(__thiscall*)(MobileActor*, bool)>(0x529AF0);
+	void MobileActor::resurrect(bool resetState, bool moveToStartingLocation) {
+		if (resetState) {
+			// Original function will resurrect, but also reset the stats, inventory, and reference of non-players.
+			TES3_MobileActor_resurrect(this, moveToStartingLocation);
+		}
+		else if (this->isDead()) {
+			// Custom resurrect logic that revives with minimal state changes.
+			actionData.animStateAttack = AttackAnimationState::Idle;
+			actionData.aiBehaviorState = 0;
+			actionData.animGroupCurrentAction = 0xFF;
+			actorFlags &= ~(MobileActorFlag::SpellReadied | MobileActorFlag::WeaponDrawn);
+			movementFlags = 0;
+
+			health.current = this->health.base;
+			magicka.current = this->magicka.base;
+			fatigue.current = this->fatigue.base;
+			magickaMultiplier.current = this->magickaMultiplier.base;
+
+			vTable.mobileActor->setupCollision(this);
+			vTable.mobileActor->handleMovementCollision(this, true);
+			WorldController::get()->mobManager->addMob(reference);
+		}
+
+		// Reset orientation that may have been altered post-death by mods.
+		reference->orientation = Vector3();
+
+		enterLeaveSimulationByDistance();
+	}
+
+	void MobileActor::resurrect_lua(sol::table params) {
+		bool resetState = params.get_or("resetState", true);
+		bool moveToStartingLocation = params.get_or("moveToStartingLocation", false);
+		resurrect(resetState, moveToStartingLocation);
+	}
+
+	using gMaxHeadTrackingDistance = mwse::ExternalGlobal<float, 0x7C8784>;
+
+	void MobileActor::overrideHeadTrackingThisFrame(Reference* target) {
+		const auto animController = animationController.asActor;
+
+		if (target) {
+			if (isActive() && animController && reference->isInSameWorldspace(target)) {
+				// Allow overrides to acquire a track target at any distance.
+				float prevMaxHeadTrackingDistance = gMaxHeadTrackingDistance::get();
+				gMaxHeadTrackingDistance::set(std::numeric_limits<float>::max());
+
+				// Call vanilla code to set head target angle, including angle constraints.
+				animController->animationData->headTracking(reference, target);
+				// Set track distance to zero so that the AI doesn't examine other targets to track.
+				animController->animationData->headLookClosestDistance = 0;
+
+				// Restore global data.
+				gMaxHeadTrackingDistance::set(prevMaxHeadTrackingDistance);
+			}
+		}
+		else {
+			// Reset head tracking distance to allow AI to control it.
+			if (animController) {
+				animController->animationData->headLookClosestDistance = std::numeric_limits<float>::max();
+			}
+		}
 	}
 
 	bool MobileActor::equipMagic(Object* source, ItemData* itemData, bool equipItem, bool updateGUI) {
@@ -297,7 +370,7 @@ namespace TES3 {
 
 			// Update the GUI if desired.
 			if (updateGUI) {
-				UI::updateCurrentMagicFromEquipmentStack(equipmentStackPointer);
+				UI::updateCurrentMagicFromEquipmentStack(nullptr, nullptr, equipmentStackPointer);
 				UI::updateMagicMenuSelection();
 			}
 		}
@@ -350,13 +423,34 @@ namespace TES3 {
 		return getViewToPointWithFacing(getFacing(), point);
 	}
 
+	float MobileActor::getViewToPoint_lua(sol::object point) const {
+		if (!point.is<const Vector3*>()) {
+			throw std::invalid_argument("Invalid 'point' parameter.");
+		}
+		return getViewToPoint(point.as<const Vector3*>());
+	}
+
 	const auto TES3_MobileActor_getViewToPointWithFacing = reinterpret_cast<float(__thiscall*)(const MobileActor*, float, const Vector3*)>(0x5264C0);
 	float MobileActor::getViewToPointWithFacing(float facing, const Vector3* point) const {
 		return TES3_MobileActor_getViewToPointWithFacing(this, facing, point);
 	}
 
+	float MobileActor::getViewToPointWithFacing_lua(float facing, sol::object point) const {
+		if (!point.is<const Vector3*>()) {
+			throw std::invalid_argument("Invalid 'point' parameter.");
+		}
+		return getViewToPointWithFacing(facing, point.as<const Vector3*>());
+	}
+
 	float MobileActor::getViewToActor(const TES3::MobileActor* mobile) const {
 		return getViewToPointWithFacing(getFacing(), &mobile->reference->position);
+	}
+
+	float MobileActor::getViewToActor_lua(sol::object mobile) const {
+		if (!mobile.is<const TES3::MobileActor*>()) {
+			throw std::invalid_argument("Invalid 'mobile' parameter.");
+		}
+		return getViewToActor(mobile.as<const TES3::MobileActor*>());
 	}
 
 	const auto TES3_MobileActor_getBootsWeight = reinterpret_cast<float(__thiscall*)(const MobileActor*)>(0x526F30);
@@ -367,6 +461,11 @@ namespace TES3 {
 	const auto TES3_MobileActor_getWeaponSpeed = reinterpret_cast<float(__thiscall*)(const MobileActor*)>(0x556580);
 	float MobileActor::getWeaponSpeed() const {
 		return TES3_MobileActor_getWeaponSpeed(this);
+	}
+
+	const auto TES3_MobileActor_getAttackReach = reinterpret_cast<float(__thiscall*)(const MobileActor*)>(0x5584C0);
+	float MobileActor::getAttackReach() const {
+		return TES3_MobileActor_getAttackReach(this);
 	}
 
 	const auto TES3_MobileActor_startCombat = reinterpret_cast<void(__thiscall*)(MobileActor*, MobileActor*)>(0x530470);
@@ -461,12 +560,12 @@ namespace TES3 {
 	const auto TES3_MobileActor_notifyActorDeadOrDestroyed = reinterpret_cast<void(__thiscall*)(MobileActor*, MobileActor*)>(0x51FEB0);
 	void MobileActor::notifyActorDeadOrDestroyed(MobileActor* mobileActor) {
 		TES3_MobileActor_notifyActorDeadOrDestroyed(this, mobileActor);
-	};
+	}
 
 	const auto TES3_MobileActor_retireMagic = reinterpret_cast<void(__thiscall*)(MobileActor*)>(0x52C990);
 	void MobileActor::retireMagic() {
 		TES3_MobileActor_retireMagic(this);
-	};
+	}
 
 	const auto TES3_MobileActor_applyHealthDamage = reinterpret_cast<bool(__thiscall*)(MobileActor*, float, bool, bool, bool)>(0x557CF0);
 	bool MobileActor::applyHealthDamage(float damage, bool isPlayerAttack, bool scaleWithDifficulty, bool doNotChangeHealth) {
@@ -484,6 +583,7 @@ namespace TES3 {
 			}
 		}
 
+		// Call original function.
 		bool killingBlow = TES3_MobileActor_applyHealthDamage(this, damage, isPlayerAttack, scaleWithDifficulty, doNotChangeHealth);
 
 		// Do our post-damage event.
@@ -496,6 +596,35 @@ namespace TES3 {
 		}
 
 		return killingBlow;
+	}
+
+	const auto TES3_MobileActor_applyFatigueDamage = reinterpret_cast<float(__thiscall*)(MobileActor*, float, float, bool)>(0x5581B0);
+	float MobileActor::applyFatigueDamage(float fatigueDamage, float swing, bool alwaysPlayHitVoice) {
+		bool miss = fatigueDamage <= 0.001f;
+
+		// Invoke our pre-damage event and check if it is blocked.
+		mwse::lua::LuaManager& luaManager = mwse::lua::LuaManager::getInstance();
+		if (!miss && mwse::lua::event::DamageHandToHandEvent::getEventEnabled()) {
+			auto stateHandle = luaManager.getThreadSafeStateHandle();
+			sol::table eventData = stateHandle.triggerEvent(new mwse::lua::event::DamageHandToHandEvent(this, fatigueDamage));
+			if (eventData.valid()) {
+				if (eventData.get_or("block", false)) {
+					return 0;
+				}
+
+				fatigueDamage = eventData["fatigueDamage"];
+			}
+		}
+
+		// Call original function. Should run on both hits and misses.
+		float result = TES3_MobileActor_applyFatigueDamage(this, fatigueDamage, swing, alwaysPlayHitVoice);
+
+		// Do our post-damage event.
+		if (!miss && mwse::lua::event::DamagedHandToHandEvent::getEventEnabled()) {
+			auto stateHandle = luaManager.getThreadSafeStateHandle();
+			sol::table eventData = stateHandle.triggerEvent(new mwse::lua::event::DamagedHandToHandEvent(this, fatigueDamage));
+		}
+		return result;
 	}
 
 	float MobileActor::applyDamage_lua(sol::table params) {
@@ -533,6 +662,15 @@ namespace TES3 {
 		return adjustedDamage;
 	}
 
+	float MobileActor::applyFatigueDamage_lua(float fatigueDamage, float swing, bool alwaysPlayHitVoice) {
+		auto prevSource = mwse::lua::event::DamageHandToHandEvent::m_Source;
+		mwse::lua::event::DamageHandToHandEvent::m_Source = "script";
+		float result = applyFatigueDamage(fatigueDamage, swing, alwaysPlayHitVoice);
+		mwse::lua::event::DamageHandToHandEvent::m_Source = prevSource;
+
+		return result;
+	}
+
 	float MobileActor::calcEffectiveDamage_lua(sol::table params) {
 		auto applyArmor = params.get_or("applyArmor", false);
 		sol::optional<float> damage = params["damage"];
@@ -562,32 +700,6 @@ namespace TES3 {
 		}
 
 		return adjustedDamage;
-	}
-
-	const auto TES3_MobileActor_applyFatigueDamage = reinterpret_cast<float(__thiscall*)(MobileActor*, float, float, bool)>(0x5581B0);
-	float MobileActor::applyFatigueDamage(float fatigueDamage, float swing, bool alwaysPlayHitVoice) {
-		// Invoke our pre-damage event and check if it is blocked.
-		mwse::lua::LuaManager& luaManager = mwse::lua::LuaManager::getInstance();
-		if (mwse::lua::event::DamageHandToHandEvent::getEventEnabled()) {
-			auto stateHandle = luaManager.getThreadSafeStateHandle();
-			sol::table eventData = stateHandle.triggerEvent(new mwse::lua::event::DamageHandToHandEvent(this, fatigueDamage));
-			if (eventData.valid()) {
-				if (eventData.get_or("block", false)) {
-					return 0;
-				}
-
-				fatigueDamage = eventData["fatigueDamage"];
-			}
-		}
-
-		float result = TES3_MobileActor_applyFatigueDamage(this, fatigueDamage, swing, alwaysPlayHitVoice);
-
-		// Do our post-damage event.
-		if (mwse::lua::event::DamagedHandToHandEvent::getEventEnabled()) {
-			auto stateHandle = luaManager.getThreadSafeStateHandle();
-			sol::table eventData = stateHandle.triggerEvent(new mwse::lua::event::DamagedHandToHandEvent(this, fatigueDamage));
-		}
-		return result;
 	}
 
 	const auto TES3_MobileActor_applyJumpFatigueCost = reinterpret_cast<float(__thiscall*)(const MobileActor*)>(0x527A60);
@@ -709,7 +821,7 @@ namespace TES3 {
 			!getMovementFlagSwimming() &&
 			!getMovementFlagFlying() &&
 			(allowMidairJumping || (!getMovementFlagJumping() && !getMovementFlagFalling())) &&
-			(!getMobileActorMovementFlag(ActorMovement::Unknown) || thisFrameDeltaPosition.length() <= 0.0099999998);
+			(!getMovementFlagSliding() || thisFrameDeltaPosition.length() <= 0.0099999998);
 	}
 
 	bool MobileActor::canJump_lua() const {
@@ -874,23 +986,92 @@ namespace TES3 {
 	}
 
 	const auto TES3_MobileActor_isAffectedByAlchemy = reinterpret_cast<bool(__thiscall*)(const MobileActor*, Alchemy*)>(0x52D1A0);
-	bool MobileActor::isAffectedByAlchemy(Alchemy * alchemy) const {
+	bool MobileActor::isAffectedByAlchemy(Alchemy* alchemy) const {
 		return TES3_MobileActor_isAffectedByAlchemy(this, alchemy);
 	}
 
+	bool MobileActor::isAffectedBySimilarAlchemy(Alchemy* alchemy) const {
+		for (auto& ame : activeMagicEffects) {
+			auto sourceInstance = ame.getInstance();
+
+			if (sourceInstance && sourceInstance->sourceCombo.sourceType == TES3::MagicSourceType::Alchemy) {
+				auto activeAlch = sourceInstance->sourceCombo.source.asAlchemy;
+
+				if (alchemy->effectsMatchWith(activeAlch)
+					&& _strnicmp(alchemy->name, activeAlch->name, 32) == 0) {
+
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	const auto TES3_MobileActor_isAffectedByEnchantment = reinterpret_cast<bool(__thiscall*)(const MobileActor*, Enchantment*)>(0x52D140);
-	bool MobileActor::isAffectedByEnchantment(Enchantment * enchantment) const {
+	bool MobileActor::isAffectedByEnchantment(Enchantment* enchantment) const {
 		return TES3_MobileActor_isAffectedByEnchantment(this, enchantment);
 	}
 
 	const auto TES3_MobileActor_isAffectedBySpell = reinterpret_cast<bool(__thiscall*)(const MobileActor*, Spell*)>(0x52D0E0);
-	bool MobileActor::isAffectedBySpell(Spell * spell) const {
+	bool MobileActor::isAffectedBySpell(Spell* spell) const {
 		return TES3_MobileActor_isAffectedBySpell(this, spell);
 	}
 
 	const auto TES3_MobileActor_isDiseased = reinterpret_cast<bool(__thiscall*)(const MobileActor*)>(0x54DB80);
 	bool MobileActor::isDiseased() const {
 		return TES3_MobileActor_isDiseased(this);
+	}
+
+	bool MobileActor::hasCommonDisease() const {
+		for (const auto& effect : activeMagicEffects) {
+			const auto instance = effect.getInstance();
+			if (instance == nullptr) {
+				continue;
+			}
+
+			const auto& combo = instance->sourceCombo;
+			if (combo.sourceType == MagicSourceType::Spell && combo.source.asSpell->castType == SpellCastType::Disease) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	bool MobileActor::hasBlightDisease() const {
+		for (const auto& effect : activeMagicEffects) {
+			const auto instance = effect.getInstance();
+			if (instance == nullptr) {
+				continue;
+			}
+
+			const auto& combo = instance->sourceCombo;
+			if (combo.sourceType == MagicSourceType::Spell && combo.source.asSpell->castType == SpellCastType::Blight) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	bool MobileActor::hasCorprusDisease() const {
+		for (const auto& effect : activeMagicEffects) {
+			if (effect.magicEffectID == EffectID::Corprus) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	bool MobileActor::hasVampirism() const {
+		for (const auto& effect : activeMagicEffects) {
+			if (effect.magicEffectID == EffectID::Vampirism) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	const auto TES3_MobileActor_getSpellList = reinterpret_cast<SpellList * (__thiscall*)(const MobileActor*)>(0x52B3D0);
@@ -930,7 +1111,7 @@ namespace TES3 {
 	void MobileActor::setIsWerewolf(bool set) {
 		setMobileActorFlag(TES3::MobileActorFlag::Werewolf, set);
 	}
-	
+
 	void MobileActor::changeWerewolfState(bool isWerewolf) {
 		vTable.mobileActor->changeWerewolf(this, isWerewolf);
 	}
@@ -966,13 +1147,51 @@ namespace TES3 {
 		}
 	}
 
+	float MobileActor::getWidth() const {
+		return reference->getScale() * float(widthRescaled) / 32.0f;
+	}
+
+	float MobileActor::getHeight() const {
+		return reference->getScale() * float(heightRescaled) / 32.0f;
+	}
+
 	const auto TES3_MobileActor_wearItem = reinterpret_cast<void(__thiscall*)(MobileActor*, Object*, ItemData*, bool, bool)>(0x52C770);
-	bool MobileActor::equipItem(Object* item, ItemData* itemData, bool addItem, bool selectBestCondition, bool selectWorstCondition) {
+	bool MobileActor::wearItem(Object * item, ItemData * itemData, bool addItem, bool unknown, bool useEvents) {
+		if (useEvents && mwse::lua::event::EquipEvent::getEventEnabled()) {
+			auto stateHandle = mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle();
+			sol::table eventData = stateHandle.triggerEvent(new mwse::lua::event::EquipEvent(reference, item, itemData));
+			if (eventData.valid() && eventData.get_or("block", false)) {
+				return false;
+			}
+		}
+
+		TES3_MobileActor_wearItem(this, item, itemData, addItem, unknown);
+
+		if (useEvents && mwse::lua::event::EquippedEvent::getEventEnabled()) {
+			auto stateHandle = mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle();
+			stateHandle.triggerEvent(new mwse::lua::event::EquippedEvent(static_cast<TES3::Actor*>(reference->baseObject), this, item, itemData));
+		}
+
+		return true;
+	}
+
+	bool MobileActor::equipItem(Object * item, ItemData * itemData, bool addItem, bool selectBestCondition, bool selectWorstCondition, bool useEvents) {
 		Actor* actor = static_cast<Actor*>(reference->baseObject);
 
 		// Equipping weapons while they are in use breaks animations and AI.
 		if (item->objectType == ObjectType::Weapon && isAttackingOrCasting()) {
 			return false;
+		}
+
+		// Prevent equipping incompatible wearables on non-player beast races.
+		// For players, execution continues to later display the correct warning message.
+		if (actorType == MobileActorType::NPC && actor->getRace()->getIsBeast()) {
+			if (item->objectType == ObjectType::Armor && !static_cast<Armor*>(item)->isUsableByBeasts()) {
+				return false;
+			}
+			if (item->objectType == ObjectType::Clothing && !static_cast<Clothing*>(item)->isUsableByBeasts()) {
+				return false;
+			}
 		}
 
 		// Check if item exists in the inventory.
@@ -983,7 +1202,7 @@ namespace TES3 {
 				if (actorType == MobileActorType::Player) {
 					UI::forcePlayerInventoryUpdate();
 				}
-				TES3_MobileActor_wearItem(this, item, itemData, false, false);
+				wearItem(item, itemData, false, false, useEvents);
 				return true;
 			}
 			return false;
@@ -998,7 +1217,7 @@ namespace TES3 {
 		// Select item based on best/worst condition.
 		if (selectBestCondition) {
 			// Use already equipped item if it has full condition.
-			if (equipped && ItemData::isFullyRepaired(equipped->itemData, static_cast<TES3::Item*>(equipped->object))) {
+			if (equipped && ItemData::isItemDataStackable(equipped->itemData, static_cast<TES3::Item*>(equipped->object))) {
 				return true;
 			}
 
@@ -1068,7 +1287,7 @@ namespace TES3 {
 			return true;
 		}
 
-		TES3_MobileActor_wearItem(this, item, itemData, false, false);
+		wearItem(item, itemData, false, false, useEvents);
 		return true;
 	}
 
@@ -1190,6 +1409,165 @@ namespace TES3 {
 			// Start unreadying action.
 			actionData.animStateAttack = AttackAnimationState::UnreadyWeap;
 		}
+	}
+
+	bool MobileActor::forceWeaponAttack_lua(sol::optional<sol::table> params) {
+		auto attackType = mwse::lua::getOptionalParam<int>(params, "attackType");
+		auto swing = mwse::lua::getOptionalParam<float>(params, "swing");
+
+		// This function is based on CombatSession::checkAttackWithWeapon.
+		// It is modified to start an attack without reach or timer checks.
+		const auto isWeaponAnimNotCreatureAttack = reinterpret_cast<bool(__thiscall*)(MobileActor*)>(0x528050);
+		if (actionData.target == nullptr) {
+			return false;
+		}
+		if (isWeaponAnimNotCreatureAttack(this) && !getFlagWeaponDrawn()) {
+			return false;
+		}
+		if (readiedWeapon && readiedWeapon->object->getSceneGraphNode() == nullptr) {
+			return false;
+		}
+
+		if (actionData.animStateAttack == AttackAnimationState::Wait) {
+			actionData.animStateAttack = AttackAnimationState::Idle;
+		}
+
+		auto animState = actionData.animStateAttack;
+		auto animGroup = actionData.animGroupCurrentAction;
+		const unsigned char Hit1 = 0x13, SwimHit3 = 0x1A;
+
+		if (animState == AttackAnimationState::Idle
+			|| (animState == AttackAnimationState::ReadyingWeap && animGroup >= Hit1 && animGroup <= SwimHit3)) {
+			auto data_animGroupNoteClass = reinterpret_cast<int*>(0x78B0A8);
+			auto weaponAnimGroup = this->vTable.mobileActor->getReadiedWeaponAnimationGroup(this);
+
+			switch (data_animGroupNoteClass[weaponAnimGroup]) {
+			case 2: // Creature attack
+			{
+				int roll100 = mwse::tes3::rand() % 100;
+				if (roll100 < 33) {
+					actionData.physicalAttackType = PhysicalAttackType::Creature1;
+				}
+				else if (roll100 < 66) {
+					actionData.physicalAttackType = PhysicalAttackType::Creature2;
+				}
+				else {
+					actionData.physicalAttackType = PhysicalAttackType::Creature3;
+				}
+				break;
+			}
+			case 3: // Projectile weapon
+				if (!getMobileActorMovementFlag(ActorMovement::Swimming)) {
+					actionData.physicalAttackType = PhysicalAttackType::Projectile;
+				}
+				break;
+			case 7: // Melee weapon
+				const auto getWeightedRandomAttackDirection = reinterpret_cast<PhysicalAttackType(__thiscall*)(CombatSession*)>(0x5373B0);
+				if (attackType) {
+					actionData.physicalAttackType = (PhysicalAttackType)attackType.value();
+				}
+				else if (combatSession) {
+					actionData.physicalAttackType = getWeightedRandomAttackDirection(combatSession);
+				}
+				else {
+					actionData.physicalAttackType = PhysicalAttackType::Slash;
+				}
+				break;
+			}
+
+			float attackSwingReleaseAt;
+			if (swing) {
+				attackSwingReleaseAt = swing.value();
+			}
+			else {
+				// Vanilla randomized swing.
+				attackSwingReleaseAt = 0.1f + 0.01f * (mwse::tes3::rand() % 100);
+				attackSwingReleaseAt = std::min(1.0f, attackSwingReleaseAt);
+			}
+			if (combatSession) {
+				combatSession->combatDelayTimer = 0;
+			}
+			animationController.asActor->startAttackAnimation(attackSwingReleaseAt);
+			return true;
+		}
+		return false;
+	}
+
+	static MobileActor* overrideActorsNextHitStunTest = nullptr;
+
+	bool MobileActor::hitStun_lua(sol::optional<sol::table> params) {
+		auto cancel = mwse::lua::getOptionalParam<bool>(params, "cancel", false);
+		auto knockDown = mwse::lua::getOptionalParam<bool>(params, "knockDown", false);
+
+		const auto animData = this->getAnimationData();
+		if (!animData) {
+			return false;
+		}
+
+		if (cancel) {
+			// Attempt to cancel hit stun or knockdown.
+			if (actionData.animGroupStunEffect != 255) {
+				actionData.animGroupStunEffect = 255;
+			}
+			else if (actionData.animStateAttack == AttackAnimationState::Knockdown) {
+				actionData.animStateAttack = AttackAnimationState::Ready;
+			}
+			else {
+				// Set up cancellation of the next hitstun.
+				// This feature allows affecting hitstun logic that runs after the 'damaged' event.
+				overrideActorsNextHitStunTest = this;
+			}
+			return true;
+		}
+
+		// Conditionals matching the hit stun mechanics.
+		auto animGroup = animData->currentAnimGroup[0];
+		const unsigned char Hit1 = 0x13, SwimHit3 = 0x1A;
+		if (!isNotKnockedDownOrOut() || (animGroup >= Hit1 && animGroup <= SwimHit3)) {
+			return false;
+		}
+			
+		if (knockDown) {
+			// Knockdown, heavy stun. When the character falls to their knees and takes seconds to recover.
+			WorldController::get()->magicInstanceController->interruptCasting(reference);
+			actionData.animStateAttack = AttackAnimationState::Knockdown;
+			return true;
+		}
+		else {
+			// Hit stun. When attacking or casting is interruped and the recovery animation is short.
+			// Note that this specific animation ID is detected and later converted to a randomized animation (Swim)Hit1-3.
+
+			// Conditionals matching the hit stun mechanics. Creatures are less interruptible.
+			auto animStateAttack = actionData.animStateAttack;
+			if (this->actorType != TES3::MobileActorType::Creature
+				|| (animStateAttack != TES3::AttackAnimationState::SwingUp
+				&& animStateAttack != TES3::AttackAnimationState::SwingDown
+				&& animStateAttack != TES3::AttackAnimationState::SwingHit
+				&& animStateAttack != TES3::AttackAnimationState::SwingFollowLight
+				&& animStateAttack != TES3::AttackAnimationState::SwingFollowMed
+				&& animStateAttack != TES3::AttackAnimationState::SwingFollowHeavy
+				&& animStateAttack != TES3::AttackAnimationState::Casting
+				&& animStateAttack != TES3::AttackAnimationState::CastingFollow
+				&& animStateAttack != TES3::AttackAnimationState::PickingProbing))
+			{
+				const unsigned char knockDownAnim = 0x22;
+				actionData.animGroupStunEffect = knockDownAnim;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	const auto TES3_MobileActor_hitStunTestAndReportCrime = reinterpret_cast<void(__thiscall*)(MobileActor*, float, bool)>(0x557840);
+	void MobileActor::hitStunTestAndReportCrime(float damage, bool wasKillingBlow) {
+		// Additional check to support the hitstun cancelling code.
+		if (this == overrideActorsNextHitStunTest) {
+			// Prevent hitstun by zeroing the reported damage.
+			overrideActorsNextHitStunTest = nullptr;
+			damage = 0.0f;
+		}
+
+		TES3_MobileActor_hitStunTestAndReportCrime(this, damage, wasKillingBlow);
 	}
 
 	void MobileActor::updateOpacity() {
@@ -1590,6 +1968,14 @@ namespace TES3 {
 		setMobileActorMovementFlag(TES3::ActorMovement::Running, value);
 	}
 
+	bool MobileActor::getMovementFlagSliding() const {
+		return getMobileActorMovementFlag(ActorMovement::Sliding);
+	}
+
+	void MobileActor::setMovementFlagSliding(bool value) {
+		setMobileActorMovementFlag(TES3::ActorMovement::Sliding, value);
+	}
+
 	bool MobileActor::getMovementFlagSneaking() const {
 		return getMobileActorMovementFlag(ActorMovement::Sneaking);
 	}
@@ -1638,6 +2024,28 @@ namespace TES3 {
 		setMobileActorMovementFlag(TES3::ActorMovement::Walking, value);
 	}
 
+	bool MobileActor::isSpeaking() const {
+		TES3::AnimationData* animData = nullptr;
+
+		if (!animationController.asActor) {
+			return false;
+		}
+
+		if (actorType == TES3::MobileActorType::Player) {
+			// Always inspect third-person animation data for the player.
+			animData = reference->getAttachedAnimationData();
+		}
+		else {
+			animData = animationController.asActor->animationData;
+		}
+
+		if (animData && animData->lipsyncLevel != -1) {
+			return true;
+		}
+
+		return false;
+	}
+
 	bool MobileActor::isAffectedByObject_lua(sol::object object) const {
 		if (object.is<TES3::Alchemy>()) {
 			return isAffectedByAlchemy(object.as<TES3::Alchemy*>());
@@ -1680,26 +2088,6 @@ namespace TES3 {
 
 	void MobileActor::setPowerUseTimestamp(Spell* power, double timestamp) {
 		powers.addKey(power, timestamp);
-	}
-
-	bool MobileActor::getMobToMobCollision() const {
-		if (actorFlags & TES3::MobileActorFlag::ActiveInSimulation) {
-			auto mobManager = TES3::WorldController::get()->mobManager;
-			return mobManager->hasMobileCollision(this);
-		}
-		return false;
-	}
-
-	void MobileActor::setMobToMobCollision(bool collide) {
-		if (actorFlags & TES3::MobileActorFlag::ActiveInSimulation) {
-			auto mobManager = TES3::WorldController::get()->mobManager;
-			if (collide) {
-				mobManager->enableMobileCollision(this);
-			}
-			else {
-				mobManager->disableMobileCollision(this);
-			}
-		}
 	}
 
 	sol::table MobileActor::getActiveMagicEffectsList_lua(sol::optional<sol::table> params) {

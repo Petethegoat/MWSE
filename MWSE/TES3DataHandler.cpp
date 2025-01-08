@@ -6,15 +6,17 @@
 #include "LuaAddSoundEvent.h"
 #include "LuaAddTempSoundEvent.h"
 #include "LuaKeyframesLoadEvent.h"
+#include "LuaKeyframesLoadedEvent.h"
 #include "LuaLoadedGameEvent.h"
 #include "LuaLoadGameEvent.h"
-#include "LuaMeshLoadEvent.h"
 #include "LuaMeshLoadedEvent.h"
+#include "LuaMeshLoadEvent.h"
 #include "LuaSavedGameEvent.h"
 #include "LuaSaveGameEvent.h"
 
 #include "TES3Util.h"
 
+#include "TES3Actor.h"
 #include "TES3Alchemy.h"
 #include "TES3Cell.h"
 #include "TES3DialogueInfo.h"
@@ -24,8 +26,8 @@
 #include "TES3Reference.h"
 #include "TES3Sound.h"
 #include "TES3Spell.h"
-#include "TES3WorldController.h"
 #include "TES3UIManager.h"
+#include "TES3WorldController.h"
 
 namespace TES3 {
 
@@ -155,7 +157,14 @@ namespace TES3 {
 		path = keyframesPath.c_str();
 		sequenceName = sequenceString.c_str();
 
-		return TES3_MeshData_loadKeyframes(this, path, sequenceName);
+		auto keyframeDefinition = TES3_MeshData_loadKeyframes(this, path, sequenceName);
+		if (keyframeDefinition && mwse::lua::event::KeyframesLoadedEvent::getEventEnabled()) {
+			mwse::lua::LuaManager::getInstance().getThreadSafeStateHandle().triggerEvent(
+				new mwse::lua::event::KeyframesLoadedEvent(path, sequenceName, keyframeDefinition)
+			);
+		}
+
+		return keyframeDefinition;
 	}
 
 	//
@@ -237,7 +246,19 @@ namespace TES3 {
 			eventFileName += ".ess";
 		}
 
+		// Bugfix: Preserve lowestZInCurrentCell when reloading a save in an interior cell.
+		// The engine resets it to -FLT_MAX instead of recalculating it if the player is in the same cell before and after loading.
+		float* pLowestZInCurrentCell = reinterpret_cast<float*>(0x7B217C);
+		float previousLowestZInCurrentCell = *pLowestZInCurrentCell;
+
 		bool loaded = TES3_NonDynamicData_loadGameInGame(this, eventFileName.c_str());
+
+		// Bugfix: In interior, restore previous lowestZInCurrentCell if has been reset.
+		if (loaded && TES3::DataHandler::get()->currentInteriorCell != nullptr) {
+			if (*pLowestZInCurrentCell == -FLT_MAX) {
+				*pLowestZInCurrentCell = previousLowestZInCurrentCell;
+			}
+		}
 
 		// Pass a follow-up event if we successfully loaded and clear timers.
 		if (loaded) {
@@ -302,6 +323,11 @@ namespace TES3 {
 	const auto TES3_NonDynamicData_findFirstCloneOfActor = reinterpret_cast<Reference * (__thiscall*)(NonDynamicData*, const char*)>(0x4B8F50);
 	Reference* NonDynamicData::findFirstCloneOfActor(const char* baseId) {
 		return TES3_NonDynamicData_findFirstCloneOfActor(this, baseId);
+	}
+
+	const auto TES3_NonDynamicData_resolveReferenceBySourceID = reinterpret_cast<Reference * (__thiscall*)(NonDynamicData*, unsigned int)>(0x4B9180);
+	Reference* NonDynamicData::resolveReferenceBySourceID(unsigned int id) {
+		return TES3_NonDynamicData_resolveReferenceBySourceID(this, id);
 	}
 
 	Spell* NonDynamicData::getSpellById(const char* id) {
@@ -410,7 +436,7 @@ namespace TES3 {
 	void NonDynamicData::showLocationOnMap(const char* name) {
 		auto idLength = strnlen_s(name, 32);
 		for (auto cell : *cells) {
-			if (cell->name && !cell->getIsInterior() && !cell->getIsLoaded()) {
+			if (cell->name && !cell->getIsInterior() && !cell->getIsMarkerDrawn()) {
 				if (_strnicmp(cell->name, name, idLength) == 0) {
 					drawCellMapMarker(cell);
 				}
@@ -429,6 +455,11 @@ namespace TES3 {
 		return TES3_NonDynamicData_getBaseAnimationFile(this, isFemale, firstPerson);
 	}
 
+	const auto TES3_NonDynamicData_getGameFile = reinterpret_cast<GameFile* (__thiscall*)(TES3::NonDynamicData*, const char*)>(0x4BAF80);
+	GameFile* NonDynamicData::getGameFile(const char* name) {
+		return TES3_NonDynamicData_getGameFile(this, name);
+	}
+
 	std::reference_wrapper<Skill[27]> NonDynamicData::getSkills() {
 		return std::ref(skills);
 	}
@@ -440,10 +471,14 @@ namespace TES3 {
 	sol::table NonDynamicData::getMagicEffects_lua(sol::this_state ts) {
 		sol::state_view state = ts;
 		sol::table results = state.create_table();
-		for (auto itt : magicEffects->effectObjects) {
+		for (const auto& itt : magicEffects->effectObjects) {
 			results[itt.second->id + 1] = itt.second;
 		}
 		return results;
+	}
+
+	bool NonDynamicData::objectExists(const std::string_view& id) {
+		return resolveObject(id.data()) != nullptr;
 	}
 
 	//
@@ -454,16 +489,20 @@ namespace TES3 {
 		return *reinterpret_cast<TES3::DataHandler**>(0x7C67E0);
 	}
 
-	Vector3 DataHandler::getLastExteriorPosition() {
+	Vector3 DataHandler::getLastExteriorPosition() const {
 		if (currentInteriorCell && lastExteriorCellPositionX != INT_MAX && lastExteriorCellPositionY != INT_MAX) {
-			auto x = float(lastExteriorCellPositionX * TES3::Cell::exteriorGridWidth);
-			auto y = float(lastExteriorCellPositionY * TES3::Cell::exteriorGridWidth);
+			const auto x = float(lastExteriorCellPositionX * TES3::Cell::exteriorGridWidth);
+			const auto y = float(lastExteriorCellPositionY * TES3::Cell::exteriorGridWidth);
 			return Vector3(x, y, 0.0f);
 		}
 		else {
 			auto macp = TES3::WorldController::get()->getMobilePlayer();
 			return macp->reference->position;
 		}
+	}
+
+	float DataHandler::getLowestZInCurrentCell() const {
+		return *reinterpret_cast<float*>(0x7B217C);
 	}
 
 	const auto TES3_DataHandler_addSound = reinterpret_cast<void(__thiscall*)(DataHandler*, Sound*, Reference*, int, unsigned char, float, bool, int)>(0x48BD40);
@@ -494,8 +533,8 @@ namespace TES3 {
 		return TES3_DataHandler_addSoundById(this, soundId, reference, playbackFlags, volume, pitch, unknown);
 	}
 
-	const auto TES3_DataHandler_addTemporySound = reinterpret_cast<void(__thiscall*)(DataHandler*, const char*, Reference*, int, int, float, bool, Sound*)>(0x48C2B0);
-	void DataHandler::addTemporySound(const char* path, Reference* reference, int playbackFlags, int volume, float pitch, bool isVoiceover, Sound* sound) {
+	const auto TES3_DataHandler_addTemporarySound = reinterpret_cast<void(__thiscall*)(DataHandler*, const char*, Reference*, int, int, float, bool, Sound*)>(0x48C2B0);
+	void DataHandler::addTemporarySound(const char* path, Reference* reference, int playbackFlags, int volume, float pitch, bool isVoiceover, Sound* sound) {
 		if (mwse::lua::event::AddTempSoundEvent::getEventEnabled()) {
 			auto& luaManager = mwse::lua::LuaManager::getInstance();
 			auto stateHandle = luaManager.getThreadSafeStateHandle();
@@ -515,7 +554,7 @@ namespace TES3 {
 			}
 		}
 
-		TES3_DataHandler_addTemporySound(this, path, reference, playbackFlags, volume, pitch, isVoiceover, sound);
+		TES3_DataHandler_addTemporarySound(this, path, reference, playbackFlags, volume, pitch, isVoiceover, sound);
 	}
 
 	const auto TES3_DataHandler_getSoundPlaying = reinterpret_cast<SoundEvent * (__thiscall*)(DataHandler*, Sound*, Reference*)>(0x48BBD0);
@@ -541,6 +580,16 @@ namespace TES3 {
 	const auto TES3_DataHandler_loadSourceTexture = reinterpret_cast<NI::SourceTexture * (__thiscall*)(TES3::DataHandler*, const char*)>(0x48DB60);
 	NI::Pointer<NI::SourceTexture> DataHandler::loadSourceTexture(const char* path) {
 		return TES3_DataHandler_loadSourceTexture(this, path);
+	}
+
+	const auto TES3_DataHandler_setDisplayCellBorders = reinterpret_cast<void(__thiscall*)(TES3::DataHandler*, bool)>(0x48E0E0);
+	void DataHandler::setDisplayCellBorders(bool display) {
+		TES3_DataHandler_setDisplayCellBorders(this, display);
+	}
+
+	const auto TES3_DataHandler_setActorCollisionBoxesDisplay = reinterpret_cast<void(__thiscall*)(TES3::DataHandler*, bool, bool)>(0x48DCC0);
+	void DataHandler::setActorCollisionBoxesDisplay(bool showActorDrawBounds, bool showWireframe) {
+		TES3_DataHandler_setActorCollisionBoxesDisplay(this, showActorDrawBounds, showWireframe);
 	}
 
 	const auto TES3_DataHandler_updateLightingForReference = reinterpret_cast<void(__thiscall*)(TES3::DataHandler*, TES3::Reference*)>(0x485E40);

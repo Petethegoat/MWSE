@@ -78,18 +78,21 @@ namespace se::cs::dialog::dialogue_window {
 	constexpr UINT CONTROL_ID_SHARED_BY_STATIC = 2011;
 	constexpr UINT CONTROL_ID_CURRENT_RESULT_STATIC = 2012;
 	constexpr UINT CONTROL_ID_SHOW_MODIFIED_ONLY_BUTTON = 2013;
+	constexpr UINT CONTROL_ID_CURRENT_TEXT_CHAR_COUNT = 2014;
+	constexpr UINT CONTROL_ID_CURRENT_TEXT_MAX_CHAR_COUNT = 2015;
+	constexpr UINT CONTROL_ID_FILTER_CELL_SETTING_COMBO = 2016;
 
 	// Global variables
 	using ghWnd = memory::ExternalGlobal<HWND, 0x6CE9A0>;
 
-	struct DialogueWindowData {
+	struct UserData_Vanilla {
 		int unknown_0x0;
 		int unknown_0x4;
 		bool unknown_0x8;
 		Dialogue* currentDialogue; // 0xC
 		DialogueInfo* currentInfo; // 0x10
 		int currentTypeTab; // 0x14
-		BaseObject* currentFilterObject; // 0x18
+		Object* currentFilterObject; // 0x18
 		HMENU menuInfoPopup; // 0x1C
 		HMENU menuInfoPopupNew; // 0x20
 		HMENU menuTopicPopup; // 0x24
@@ -97,9 +100,23 @@ namespace se::cs::dialog::dialogue_window {
 		int unknown_0x2C;
 		bool unknown_0x30;
 	};
-	static_assert(sizeof(DialogueWindowData) == 0x34, "DialogueWindowData failed size validation");
+	static_assert(sizeof(UserData_Vanilla) == 0x34, "UserData failed size validation");
+
+	struct UserData : UserData_Vanilla {
+		enum class CellFilterMode : unsigned int {
+			UseCellReference,
+			UseRenderWindowCell,
+			IgnoreCellFilter,
+		};
+
+		CellFilterMode cellFilterMode;
+		bool modeShowModifiedOnly;
+
+	};
 
 	HWND createOrFocus(Actor* filter = nullptr);
+
+	HWND getActiveDialogueWindow();
 
 	bool focusDialogue(Dialogue* dialogue, DialogueInfo* info = nullptr);
 

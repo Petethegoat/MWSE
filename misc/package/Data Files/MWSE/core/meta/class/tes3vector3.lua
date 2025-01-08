@@ -4,14 +4,15 @@
 --- @meta
 --- A simple trio of floating-point numbers.
 --- @class tes3vector3
+--- @operator add(number): tes3vector3
 --- @operator add(tes3vector3): tes3vector3
 --- @operator div(number): tes3vector3
 --- @operator len: number
 --- @operator mul(tes3vector3): tes3vector3
 --- @operator mul(number): tes3vector3
+--- @operator sub(number): tes3vector3
 --- @operator sub(tes3vector3): tes3vector3
 --- @operator unm: tes3vector3
---- @field angle number The angle between the vector and the water plane.
 --- @field b number The third value in the vector. An alias for `z`.
 --- @field g number The second value in the vector. An alias for `y`.
 --- @field r number The first value in the vector. An alias for `x`.
@@ -27,6 +28,15 @@ tes3vector3 = {}
 --- @return tes3vector3 vector No description yet available.
 function tes3vector3.new(x, y, z) end
 
+--- Converts the vector to a string with 2 decimal places.
+--- @return string result No description yet available.
+function tes3vector3:__tostring() end
+
+--- The returns the angle between the two vectors in radians.
+--- @param vec tes3vector3 No description yet available.
+--- @return number result No description yet available.
+function tes3vector3:angle(vec) end
+
 --- Creates a copy of the vector.
 --- @return tes3vector3 result No description yet available.
 function tes3vector3:copy() end
@@ -36,12 +46,52 @@ function tes3vector3:copy() end
 --- @return tes3vector3 result No description yet available.
 function tes3vector3:cross(vec) end
 
---- Calculates the distance to another vector.
+--- Calculates the distance to another vector in the standard way, i.e., using the [Euclidean distance](https://en.wikipedia.org/wiki/Euclidean_distance).
 --- @param vec tes3vector3 No description yet available.
 --- @return number result No description yet available.
 function tes3vector3:distance(vec) end
 
+--- Calculates the distance to another vector, using the [Chebyshev metric](https://en.wikipedia.org/wiki/Chebyshev_distance), which is defined as
+--- 
+--- 	math.max(math.abs(v1.x - v2.x), math.abs(v1.y - v2.y), math.abs(v1.z - v2.z))
+--- 
+--- This is useful for ensuring that the x, y, and z coordinates between two vectors are all (independently) within a certain distance from each other.
+--- 
+--- Here is a geometric description of the difference between the normal distance and the Chebyshev distance for two `tes3vector3`s  `v1` and `v2`:
+--- 
+--- * If `v1:distance(v2) <= 1`, then `v2` is contained in a sphere around `v1` with radius 1 (i.e. diameter 2).
+--- * If `v1:distanceChebyshev(v2) <= 1`, then `v2` is contained within a cube centered around `v1`, where the cube has length 2.
+--- 
+--- @param vec tes3vector3 No description yet available.
+--- @return number result No description yet available.
+function tes3vector3:distanceChebyshev(vec) end
+
+--- Calculates the distance to another vector, using the [Manhattan (i.e. city block) metric](https://en.wikipedia.org/wiki/Taxicab_geometry). 
+--- In the two-dimensional case, the Manhattan metric can be thought of 
+--- as the distance that two taxis will have to travel if they're following a grid system.
+--- The formula for the Manhattan distance is
+--- 
+--- 	math.abs(v1.x - v2.x) + math.abs(v1.y - v2.y) + math.abs(v1.z - v2.z)
+--- 
+--- This is useful for checking how far you'd actually have to move if you're only allowed to move along one axis at a time.
+--- 
+--- @param vec tes3vector3 No description yet available.
+--- @return number result No description yet available.
+function tes3vector3:distanceManhattan(vec) end
+
+--- Calculates the distance between the XY-coordinates of two vectors.
+--- 
+--- This method offers a way of calculating distances between vectors in situations where it's more convenient to ignore the z-coordinates.
+--- 
+---
+--- [Examples available in online documentation](https://mwse.github.io/MWSE/types/tes3vector3/#distancexy).
+--- @param vec tes3vector3 No description yet available.
+--- @return number result No description yet available.
+function tes3vector3:distanceXY(vec) end
+
 --- Calculates the dot product with another vector.
+---
+--- [Examples available in online documentation](https://mwse.github.io/MWSE/types/tes3vector3/#dot).
 --- @param vec tes3vector3 No description yet available.
 --- @return number result No description yet available.
 function tes3vector3:dot(vec) end

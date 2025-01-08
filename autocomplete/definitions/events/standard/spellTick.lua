@@ -13,17 +13,17 @@ return {
 			description = "The number of seconds since the last spell tick.",
 		},
 		["effect"] = {
-			type = "tes3magicEffect",
+			type = "tes3effect",
 			readOnly = true,
 			description = "The individual effect structure on source.",
 		},
 		["effectId"] = {
-			type = "number",
+			type = "tes3.effect|integer",
 			readOnly = true,
 			description = "The magic effect ID that is being ticked. Maps to values in [`tes3.effect`](https://mwse.github.io/MWSE/references/magic-effects/) namespace.",
 		},
 		["effectIndex"] = {
-			type = "number",
+			type = "integer",
 			readOnly = true,
 			description = "The index of the effect in source’s effects list.",
 		},

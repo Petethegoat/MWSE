@@ -12,7 +12,7 @@
 --- @field class tes3class *Read-only*. Quick access to the base NPC's class.
 --- @field disposition number *Read-only*. The actor's effective disposition, with all modifiers applied.
 --- @field faction tes3faction *Read-only*. Quick access to the base NPC's faction.
---- @field factionIndex number Deprecated. Use `reputation` instead.
+--- @field factionRank number *Read-only*. Quick access to the base NPC's faction rank.
 --- @field fatigue number *Read-only*. Quick access to the base NPC's fatigue.
 --- @field female boolean Direct access to the actor female flag.
 --- @field health number *Read-only*. Quick access to the base NPC's health.
@@ -25,7 +25,7 @@
 --- @field level number *Read-only*. Quick access to the base NPC's level.
 --- @field magicka number *Read-only*. Quick access to the base NPC's magicka.
 --- @field mesh string The path to the object's mesh.
---- @field mobile tes3mobileActor|tes3mobileCreature|tes3mobileNPC|tes3mobilePlayer *Read-only*. The mobile that the object is represented by.
+--- @field mobile tes3mobileCreature|tes3mobileNPC|tes3mobilePlayer *Read-only*. The mobile that the object is represented by.
 --- @field name string Quick access to the base NPC's name.
 --- @field race tes3race *Read-only*. Quick access to the base NPC's race.
 --- @field reference tes3reference *Read-only*. The reference that the object is represented by.
@@ -33,10 +33,10 @@
 --- @field script tes3script *Read-only*. Quick access to the base NPC's script.
 --- @field skills number[] Quick access to the base NPC's skills.
 --- @field soul number|nil The soul value for this NPC's base object. This is typically `nil`, unless the `calcSouLValue` event provides one for the base actor.
---- @field spells tes3spellList *Read-only*. Quick access to the base NPC's spell list. It is a `tes3spellList`, which is a list wrapper with helper functions. The actual list is accessed with `.iterator`. e.g. `for _, spell in pairs(npc.spells.iterator) do print(spell.name) end`
+--- @field spells tes3spellList|tes3spell[] *Read-only*. Quick access to the NPC's spell list. It is a `tes3spellList`, which is a list wrapper with helper functions. The actual list is iterated over using `pairs`. E.g. `for _, spell in pairs(npc.spells) do print(spell.name) end`
 --- @field weight number *Read-only*. Convenience access to the NPCs (race) weight.
 tes3npcInstance = {}
 
---- Causes the NPC to reevaluate his/hers equipment choices and equip the best available.
+--- Causes the NPC to reevaluate his/hers equipment choices and equip the best available. Then, the visible body parts will be updated.
 function tes3npcInstance:reevaluateEquipment() end
 
