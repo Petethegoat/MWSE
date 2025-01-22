@@ -85,6 +85,7 @@ namespace TES3::UI {
 	void updateMagicMenuSelection();
 	void updateSpellmakingMenu();
 	void updateEnchantingMenu();
+	void flagSkillUpdated(int unknown);
 
 	void updateInventoryMenuTiles();
 	void updateContentsMenuTiles();
@@ -115,6 +116,10 @@ namespace TES3::UI {
 	std::tuple<int, int, int> textLayoutGetTextExtent_lua(sol::table params);
 	int textLayoutWrapTextInPlace(TES3::Font* font, char* textBuffer, unsigned int maxWidth, bool ignoreLinkDelimiters, char newlineReplacement);
 	std::tuple<std::string, int> textLayoutWrapText_lua(sol::table params);
+
+	void showLoadingMenu(const char* title, float progress);
+	void updateLoadingMenu(float progress);
+	void destroyLoadingMenu();
 
 	//
 	// Helper functions.

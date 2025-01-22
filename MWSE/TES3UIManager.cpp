@@ -722,6 +722,11 @@ namespace TES3::UI {
 		TES3_UI_UpdateEnchantingMenu();
 	}
 
+	const auto TES3_UI_FlagSkillUpdated = reinterpret_cast<void(__cdecl*)(int)>(0x627320);
+	void flagSkillUpdated(int unknown) {
+		TES3_UI_FlagSkillUpdated(unknown);
+	}
+
 	const auto TES3_UpdateInventoryTiles = reinterpret_cast<void(__cdecl*)()>(0x5CC910);
 	void updateInventoryMenuTiles() {
 		TES3_UpdateInventoryTiles();
@@ -1171,6 +1176,21 @@ namespace TES3::UI {
 
 		int lineCount = textLayoutWrapTextInPlace(font, textBuffer.data(), maxWidth, ignoreLinkDelimiters, '\n');
 		return { textBuffer, lineCount };
+	}
+
+	void showLoadingMenu(const char* title, float progress) {
+		const auto TES3_UI_showLoadingMenu = reinterpret_cast<void(__cdecl*)(const char*, float)>(0x5DED20);
+		TES3_UI_showLoadingMenu(title, progress);
+	}
+
+	void updateLoadingMenu(float progress) {
+		const auto TES3_UI_updateLoadingMenu = reinterpret_cast<void(__cdecl*)(float)>(0x4C7D90);
+		TES3_UI_updateLoadingMenu(progress);
+	}
+
+	void destroyLoadingMenu() {
+		const auto TES3_UI_destroyLoadingMenu = reinterpret_cast<void(__cdecl*)()>(0x5DEEA0);
+		TES3_UI_destroyLoadingMenu();
 	}
 
 	void pushNewUIID(DWORD address, const char* name) {

@@ -175,7 +175,7 @@ tes3.addClothingSlot({ slot = ..., name = ..., key = ... })
 Adds an item to a given reference's inventory or mobile's inventory. The `reference` will be cloned if needed.
 
 ```lua
-local addedCount = tes3.addItem({ reference = ..., item = ..., itemData = ..., soul = ..., count = ..., playSound = ..., showMessage = ..., limit = ..., reevaluateEquipment = ..., equipProjectiles = ..., updateGUI = ... })
+local count, item, itemData = tes3.addItem({ reference = ..., item = ..., itemData = ..., soul = ..., count = ..., playSound = ..., showMessage = ..., limit = ..., reevaluateEquipment = ..., equipProjectiles = ..., updateGUI = ... })
 ```
 
 **Parameters**:
@@ -183,7 +183,7 @@ local addedCount = tes3.addItem({ reference = ..., item = ..., itemData = ..., s
 * `params` (table)
 	* `reference` ([tes3reference](../types/tes3reference.md), [tes3mobileActor](../types/tes3mobileActor.md), string): Who to give items to.
 	* `item` ([tes3item](../types/tes3item.md), [tes3leveledItem](../types/tes3leveledItem.md), string): The item to add. If a leveled item is passed, it will be resolved and added.
-	* `itemData` ([tes3itemData](../types/tes3itemData.md)): *Optional*. The item data for the item.
+	* `itemData` ([tes3itemData](../types/tes3itemData.md)): *Optional*. The item data for the item. The owner, if set, will be cleared. Note that this may be deleted from memory then ignored if it has no other special information associated with it (i.e., it is fully repaired/charged, has no soul, and contains empty lua data).
 	* `soul` ([tes3creature](../types/tes3creature.md), [tes3npc](../types/tes3npc.md)): *Optional*. For creating filled soul gems.
 	* `count` (number): *Default*: `1`. The maximum number of items to add.
 	* `playSound` (boolean): *Default*: `true`. If `false`, the up/down sound for the item won't be played. This only applies if `reference` is the player.
@@ -195,7 +195,9 @@ local addedCount = tes3.addItem({ reference = ..., item = ..., itemData = ..., s
 
 **Returns**:
 
-* `addedCount` (number)
+* `count` (number): The number of items added to the reference.
+* `item` ([tes3item](../types/tes3item.md)): The item added. This is usually the `item` parameter passed to the function, but can be something else in the case of leveled items.
+* `itemData` ([tes3itemData](../types/tes3itemData.md)): The itemData added. This can be created if the `soul` parameter is used, or if an `itemData` was passed. If the passed `itemData` was deleted, the value will be `nil`.
 
 ***
 
@@ -798,27 +800,27 @@ local success = tes3.cast({ reference = ..., target = ..., spell = ..., instant 
 	-- The following code can be tested in-game by pressing Alt + l or Alt + k
 	
 	event.register(tes3.event.keyDown, function(e)
-		if e.isAltDown then
-			tes3.messageBox("mwscript.explodeSpell")
-			---@diagnostic disable-next-line: deprecated
-			mwscript.explodeSpell({
-				reference = tes3.game.playerTarget,
-				spell = "proj_trap_spell"
-			})
-		end
-	end, { filter = tes3.scanCode.l })
+		if not tes3.isKeyEqual({ actual = e, expected = { keyCode = tes3.scanCode.l, isAltDown = true } }) then return end
+	
+		tes3.messageBox("mwscript.explodeSpell")
+		---@diagnostic disable-next-line: deprecated
+		mwscript.explodeSpell({
+			reference = tes3.game.playerTarget,
+			spell = "proj_trap_spell"
+		})
+	end)
 	
 	event.register(tes3.event.keyDown, function(e)
-		if e.isAltDown then
-			tes3.messageBox("tes3.cast")
-			-- This will behave the same as mwscript.explodeSpell()
-			tes3.cast({
-				target = tes3.game.playerTarget,
-				reference = tes3.game.playerTarget,
-				spell = "proj_trap_spell",
-			})
-		end
-	end, { filter = tes3.scanCode.k })
+		if not tes3.isKeyEqual({ actual = e, expected = { keyCode = tes3.scanCode.k, isAltDown = true } }) then return end
+	
+		tes3.messageBox("tes3.cast")
+		-- This will behave the same as mwscript.explodeSpell()
+		tes3.cast({
+			target = tes3.game.playerTarget,
+			reference = tes3.game.playerTarget,
+			spell = "proj_trap_spell",
+		})
+	end)
 
 	```
 
@@ -1313,7 +1315,7 @@ Equip may fail for the following reasons:
 - When a weapon is being used to attack, it cannot be replaced during the attack animation.
 
 ```lua
-local itemEquipped = tes3.equip({ reference = ..., item = ..., itemData = ..., addItem = ..., selectBestCondition = ..., selectWorstCondition = ..., bypassEquipEvents = ... })
+local itemEquipped = tes3.equip({ reference = ..., item = ..., itemData = ..., addItem = ..., selectBestCondition = ..., selectWorstCondition = ..., bypassEquipEvents = ..., playSound = ... })
 ```
 
 **Parameters**:
@@ -1326,6 +1328,7 @@ local itemEquipped = tes3.equip({ reference = ..., item = ..., itemData = ..., a
 	* `selectBestCondition` (boolean): *Default*: `false`. If `true`, the item in the inventory with the best condition and best charge will be selected.
 	* `selectWorstCondition` (boolean): *Default*: `false`. If `true`, the item in the inventory with the worst condition and worst charge will be selected. Can be useful for selecting tools.
 	* `bypassEquipEvents` (boolean): *Default*: `false`. If `true`, this call will not raise any `equip`-related events.
+	* `playSound` (boolean): *Default*: `true`. If `true`, the default item sound will be played for the item.
 
 **Returns**:
 
@@ -3312,7 +3315,10 @@ local equal = tes3.isKeyEqual({ actual = ..., expected = ... })
 	local config = mwse.loadConfig("myModConfig", defaultConfig)
 	
 	local function registerModConfig()
-		local template = mwse.mcm.createTemplate({ name = "Test Mod" })
+		local template = mwse.mcm.createTemplate({
+			name = "Test Mod",
+			config = config
+		})
 		template:register()
 	
 		local page = template:createSideBarPage({ label = "Settings" })
@@ -3321,10 +3327,7 @@ local equal = tes3.isKeyEqual({ actual = ..., expected = ... })
 			label = "My combo",
 			description = "This combo does...",
 			allowMouse = true,
-			variable = mwse.mcm.createTableVariable({
-				id = "combo",
-				table = config
-			}),
+			configKey = "combo",
 		})
 	end
 	event.register(tes3.event.modConfigReady, registerModConfig)
@@ -3671,14 +3674,12 @@ local element = tes3.messageBox({ message = ..., buttons = ..., callback = ..., 
 	-- Here we define the body of our function.
 	onButtonPressed = function(e)
 		-- This corresponds to the first button
-		--  of our message, which is "Yes"
+		-- of our message, which is "Yes"
 		if e.button == 0 then
 			tes3.addItem({
 				reference = tes3.player,
 				item = "ingred_bread_01_UNI3",
 			})
-		else
-			-- Do nothing
 		end
 	end
 
@@ -4170,14 +4171,14 @@ tes3.removeEffects({ reference = ..., effect = ..., castType = ..., chance = ...
 	
 		local underwater = headPosition < waterLevel
 	
-		if underwater then
-			-- There is a 50 % chance that any Water Breathing effect will be removed from the player
-			tes3.removeEffects({
-				reference = tes3.player,
-				chance = 50,
-				effect = tes3.effect.waterBreathing,
-			})
-		end
+		if not underwater then return end
+	
+		-- There is a 50 % chance that any Water Breathing effect will be removed from the player
+		tes3.removeEffects({
+			reference = tes3.player,
+			chance = 50,
+			effect = tes3.effect.waterBreathing,
+		})
 	end
 	
 	event.register(tes3.event.initialized, function ()
@@ -4194,7 +4195,7 @@ tes3.removeEffects({ reference = ..., effect = ..., castType = ..., chance = ...
 Removes an item from a given reference's inventory. Items without itemData will be removed first. The `reference` will be cloned if needed.
 
 ```lua
-local removedCount = tes3.removeItem({ reference = ..., item = ..., itemData = ..., deleteItemData = ..., count = ..., playSound = ..., reevaluateEquipment = ..., updateGUI = ... })
+local removedCount = tes3.removeItem({ reference = ..., item = ..., itemData = ..., count = ..., playSound = ..., reevaluateEquipment = ..., updateGUI = ... })
 ```
 
 **Parameters**:
@@ -4203,7 +4204,6 @@ local removedCount = tes3.removeItem({ reference = ..., item = ..., itemData = .
 	* `reference` ([tes3reference](../types/tes3reference.md), [tes3mobileActor](../types/tes3mobileActor.md), string): Who to remove items from.
 	* `item` ([tes3item](../types/tes3item.md), string): The item to remove.
 	* `itemData` ([tes3itemData](../types/tes3itemData.md)): *Optional*. The item data for the exact item to remove.
-	* `deleteItemData` ([tes3itemData](../types/tes3itemData.md)): *Optional*. Whether to delete the item data after remove succeeds. Automatically set if itemData is used. Does not need to be specified for normal usage.
 	* `count` (number): *Default*: `1`. The maximum number of items to remove.
 	* `playSound` (boolean): *Default*: `true`. If false, the up/down sound for the item won't be played.
 	* `reevaluateEquipment` (boolean): *Default*: `true`. If true, and the item removed is armor, clothing, or a weapon, the actor will reevaluate its equipment choices to see if it needs to equip a new item. This does not affect the player.

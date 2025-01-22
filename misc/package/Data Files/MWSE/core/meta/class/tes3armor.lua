@@ -29,7 +29,7 @@
 tes3armor = {}
 
 --- Calculates what armor rating is provided for a given mobile actor.
---- @param mobile tes3mobileCreature|tes3mobileNPC|tes3mobilePlayer No description yet available.
+--- @param mobile tes3mobileActor|tes3mobileCreature|tes3mobileNPC|tes3mobilePlayer No description yet available.
 function tes3armor:calculateArmorRating(mobile) end
 
 --- Creates a copy of this object.
@@ -48,4 +48,10 @@ function tes3armor:createCopy(params) end
 --- @field id string? *Optional*. The new object's ID. If one is not provided, a randomly generated one will be used.
 --- @field addToObjectList boolean? *Default*: `true`. If true, the object will be added to the data handler. If this is false, the new object may not have a randomly generated ID. Do not use this without knowing the implications.
 --- @field sourceless boolean? *Default*: `false`. If true, the object will be made sourceless, and will not be serialized to the save game. If the object is copied outside of a save game, the object will **always** be sourceless.
+
+--- Updates a body part manager for this piece of equipment, setting up all the necessary nodes for each layer.
+--- @param bodyPartManager tes3bodyPartManager No description yet available.
+--- @param isFemale bool No description yet available.
+--- @param isFirstPerson bool No description yet available.
+function tes3armor:setupBodyParts(bodyPartManager, isFemale, isFirstPerson) end
 

@@ -1222,6 +1222,102 @@ namespace mwse::patch {
 	const size_t PatchNIDX8Renderer_RenderShape_size = 0x8;
 
 	//
+	// Patch: Fix cure spells incorrectly triggering MagicEffectState_Ending for magic that hasn't taken effect yet.
+	//
+
+	__declspec(naked) void PatchRemoveMagicsByEffect() {
+		__asm {
+			cmp byte ptr [esp + 0x4C], 5		// if (magicEffectInstance.state == MagicEffectState_Working)
+			jnz done
+			mov byte ptr [esp + 0x4C], 6		// magicEffectInstance.state = MagicEffectState_Ending
+		done:
+			ret
+		}
+	}
+
+	//
+	// Patch: Fix loading crashes where there are links to missing objects from mods that were removed.
+	//
+
+	// Prevent crashes when a casting item is no longer present.
+	__declspec(naked) void PatchMagicSourceInstanceDtor() {
+		__asm {
+			test edi, edi						// if (!castingItem)
+			__asm _emit 0x74 __asm _emit 0x45	// jz short $ + 0x47 (assembler can't output short offsets correctly)
+			lea esi, [edi+4]					// esi = &castingItem.objectType
+			mov eax, [esi]						// eax = castingItem.objectType
+			nop
+		}
+	}
+	const size_t PatchMagicSourceInstanceDtor_size = 0xA;
+
+	// Prevent deleting itemData when a soul trapped creature is no longer present.
+	__declspec(naked) void PatchSoulTrappedCreatureNotFound1() {
+		__asm {
+			add esp, 0x8
+			__asm _emit 0xEB __asm _emit 0x0D	// jmp short $ + 0xF (assembler can't output short offsets correctly)
+		}
+	}
+	const size_t PatchSoulTrappedCreatureNotFound1_size = 0x5;
+
+	__declspec(naked) void PatchSoulTrappedCreatureNotFound2() {
+		__asm {
+			add esp, 0x8
+			__asm _emit 0xEB __asm _emit 0x09	// jmp short $ + 0xB (assembler can't output short offsets correctly)
+		}
+	}
+	const size_t PatchSoulTrappedCreatureNotFound2_size = 0x5;
+
+	__declspec(naked) void PatchSoulTrappedCreatureNotFound3() {
+		__asm {
+			add esp, 0x8
+			__asm _emit 0xEB __asm _emit 0x17	// jmp short $ + 0x19 (assembler can't output short offsets correctly)
+		}
+	}
+	const size_t PatchSoulTrappedCreatureNotFound3_size = 0x5;
+
+	//
+	// Patch: Prevent crash with magic effects on invalid targets.
+	//
+
+	void __cdecl PatchMagicEffectFortifySkill(TES3::MagicSourceInstance* sourceInstance, float deltaTime, TES3::MagicEffectInstance* effectInstance, int effectIndex) {
+		auto mobile = effectInstance->target->getAttachedMobileActor();
+		if (mobile == nullptr) {
+			return;
+		}
+
+		const auto MagicEffectFortifySkill = reinterpret_cast<void(__cdecl*)(TES3::MagicSourceInstance*, float, TES3::MagicEffectInstance*, int)>(0x4625F0);
+		MagicEffectFortifySkill(sourceInstance, deltaTime, effectInstance, effectIndex);
+	}
+
+	//
+	// Patch: Suppress sGeneralMastPlugMismatchMsg message.
+	//
+
+	std::optional<UINT> AllowYesToAll = {};
+
+	static UINT __stdcall GetCachedYesToAll(LPCSTR lpAppName, LPCSTR lpKeyName, INT nDefault, LPCSTR lpFileName) {
+		if (!AllowYesToAll.has_value()) {
+			AllowYesToAll = GetPrivateProfileIntA(lpAppName, lpKeyName, nDefault, lpFileName);
+		}
+
+		return AllowYesToAll.value_or(FALSE);
+	}
+
+	static void __cdecl SuppressGeneralMastPlugMismatchMsg(const char* sGeneralMastPlugMismatchMsg) {
+		// Prevent the message from even showing.
+		if (Configuration::SuppressUselessWarnings) {
+			return;
+		}
+
+		// Display the message, but prevent yes to all from being used.
+		decltype(AllowYesToAll) cachedYesToAll = FALSE;
+		std::swap(cachedYesToAll, AllowYesToAll);
+		tes3::logAndShowError(sGeneralMastPlugMismatchMsg);
+		std::swap(cachedYesToAll, AllowYesToAll);
+	}
+
+	//
 	// Install all the patches.
 	//
 
@@ -1671,6 +1767,22 @@ namespace mwse::patch {
 		genCallEnforced(0x6E54C5, 0x6F15B0, reinterpret_cast<DWORD>(PatchNITriShapeCopyMembers));
 		writePatchCodeUnprotected(0x6ACF1F, (BYTE*)&PatchNIDX8Renderer_RenderShape, PatchNIDX8Renderer_RenderShape_size);
 		overrideVirtualTableEnforced(0x7508B0, offsetof(NI::TriShape_vTable, NI::TriShape_vTable::linkObject), 0x6E56D0, *reinterpret_cast<DWORD*>(&TriShape_linkObject));
+
+		// Patch: Fix cure spells incorrectly triggering MagicEffectState_Ending for magic that hasn't taken effect yet.
+		genCallUnprotected(0x4559B2, reinterpret_cast<DWORD>(PatchRemoveMagicsByEffect), 0x8);
+
+		// Patch: Fix loading crashes where there are links to missing objects from mods that were removed.
+		writePatchCodeUnprotected(0x512485, (BYTE*)&PatchMagicSourceInstanceDtor, PatchMagicSourceInstanceDtor_size);
+		writePatchCodeUnprotected(0x49DEE1, (BYTE*)&PatchSoulTrappedCreatureNotFound1, PatchSoulTrappedCreatureNotFound1_size);
+		writePatchCodeUnprotected(0x4A4BEC, (BYTE*)&PatchSoulTrappedCreatureNotFound2, PatchSoulTrappedCreatureNotFound2_size);
+		writePatchCodeUnprotected(0x4D8DD7, (BYTE*)&PatchSoulTrappedCreatureNotFound3, PatchSoulTrappedCreatureNotFound3_size);
+
+		// Patch: Prevent crash with magic effects on invalid targets.
+		writeDoubleWordEnforced(0x7884B0 + (TES3::EffectID::FortifySkill * 4), 0x4625F0, reinterpret_cast<DWORD>(PatchMagicEffectFortifySkill));
+
+		// Patch: Suppress sGeneralMastPlugMismatchMsg message.
+		genCallUnprotected(0x477512, reinterpret_cast<DWORD>(GetCachedYesToAll), 0x477518 - 0x477512);
+		genCallEnforced(0x4BB55D, 0x477400, reinterpret_cast<DWORD>(SuppressGeneralMastPlugMismatchMsg));
 	}
 
 	void installPostLuaPatches() {
